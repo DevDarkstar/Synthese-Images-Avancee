@@ -30,6 +30,8 @@ using namespace std;
 #define NB_r 20
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
+#define SILHOUETTE_BUFFER_SIZE 128
+
 GLfloat sommets[(NB_R+1)*(NB_r+1)*3] ; // x 3 coordonnées (+1 acr on double les dernierspoints pour avoir des coord de textures <> pour les points de jonctions)
 GLuint indices[NB_R*NB_r*6]; // x6 car pour chaque face quadrangulaire on a 6 indices (2 triangles=2x 3 indices)
 GLfloat coordTexture[(NB_R+1)*(NB_r+1)*2] ; // x 2 car U+V par sommets
@@ -88,8 +90,7 @@ struct ToonIDs{
   GLuint locMaterialDiffuse; // Couleur de la lumière diffuse
   GLuint locDiffuseCoefficient; // Coefficient de la lumière diffuse Kd
   GLuint locDisplaySilhouette; // Contrôle l'affichage de la silhouette autour du tore
-  GLuint locEps; // Contrôle l'intensité de l'effet de bord (silhouette)
-  GLuint locSilhouetteColor; // Couleur de l'effet de bord du tore (silhouette)
+  GLuint locSilhouetteTex; // Texture de la silhouette autour de l'objet
 };
 
 struct GoochIDs{
@@ -111,6 +112,9 @@ GoochIDs goochIds;
 // location des VBO
 //------------------
 GLuint indexVertex=0, indexUVTexture=2, indexNormale=3;
+
+//Gestionnaires de la texture de la silhouette pour le shader Toon
+GLuint silhouetteTex;
 
 //variable pour paramétrage eclairage
 //--------------------------------------
@@ -134,6 +138,7 @@ GLfloat Ks = .7; // Coefficient de la lumière spéculaire
 GLfloat eps = 0.3; // Variable epsilon indiquant l'intensité de la silhouette autour de l'objet (effet de bord)
 vec3 silhouetteColor(0.,0.,0.); // Couleur de la silhouette
 GLint displaySilhouette = 0; // Booléen indiquant si la silhouette est visible ou non
+vec3 silhouetteData[SILHOUETTE_BUFFER_SIZE]; // Données de la texture permettant de représenter la silhouette dans le shader Toon
 
 glm::mat4 MVP;      // justement la voilà
 glm::mat4 Model, View, Projection;    // Matrices constituant MVP
@@ -189,7 +194,34 @@ int i0,i1,i2,i3,i4,i5;
    indices[(i*NB_r*6)+ (j*6)+4]=(unsigned int)(((i+1)*(NB_r+1))+ (j+1));
    indices[(i*NB_r*6)+ (j*6)+5]=(unsigned int)(((i)*(NB_r+1))+ (j+1));
 }
+}
 
+void initSilhouetteTexture(){
+  // Création des données à stocker dans la texture de seuillage
+  for(int i = 0; i < SILHOUETTE_BUFFER_SIZE; i++){
+    // Calcul de la valeur à l'indice i du tableau comprise entre 0 et 1
+    GLfloat value = (GLfloat)i / (GLfloat)SILHOUETTE_BUFFER_SIZE;
+    // Puis stockage de la couleur adéquate en fonction d'une valeur epsilon
+    if (value <= eps)
+      silhouetteData[i] = silhouetteColor;
+    else
+      silhouetteData[i] = vec3(1.,1.,1.);
+  }
+  // Création d'une texture 1D qui contiendra les valeurs de texture de la silhouette
+  glGenTextures(1, &silhouetteTex);
+  // Utilisation de la texture 1D
+  glBindTexture(GL_TEXTURE_1D, silhouetteTex);
+
+  // Initialisation de la texture 1D
+  glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB32F, SILHOUETTE_BUFFER_SIZE, 0, GL_RGB, GL_FLOAT, silhouetteData);
+
+  //Paramètres de la texture
+  glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+  //Désactivation de la texture 1D après paramétrage
+  glBindTexture(GL_TEXTURE_1D, 0);
 }
 
 // Récupération des emplacements des variables uniformes pour le shader de Phong
@@ -231,9 +263,8 @@ void getUniformLocationToon(ToonIDs& toon){
   toon.locDiffuseCoefficient = glGetUniformLocation(toon.programID, "Kd");
   toon.locLightPosition = glGetUniformLocation(toon.programID, "lightPosition");
   toon.locMaterialDiffuse = glGetUniformLocation(toon.programID, "materialDiffuse");
-  toon.locEps = glGetUniformLocation(toon.programID, "epsilon");
   toon.locDisplaySilhouette = glGetUniformLocation(toon.programID, "displaySilhouette");
-  toon.locSilhouetteColor = glGetUniformLocation(toon.programID, "silhouetteColor");
+  toon.locSilhouetteTex = glGetUniformLocation(toon.programID, "silhouetteTex");
 }
 
 // Récupération des emplacements des variables uniformes pour le shader de Gooch
@@ -264,10 +295,12 @@ void initOpenGL(void)
   glEnable(GL_CULL_FACE); // on active l'élimination des faces qui par défaut n'est pas active
   glEnable(GL_DEPTH_TEST);
 
+  //création et remplissage de la texture de seuillage de la silhouette pour le shader Toon
+  initSilhouetteTexture();
   // Récupération des emplacements des variables uniformes pour le shader de Phong
   getUniformLocationPhong(phongIds);
   // Récupération des emplacements des variables uniformes pour le shader Toon
-  getUniformLocationToon(toonIds); 
+  getUniformLocationToon(toonIds);
   // Récupération des emplacements des variables uniformes pour le shader de Gooch
   getUniformLocationGooch(goochIds);
 
@@ -449,8 +482,7 @@ void setToonUniformValues(ToonIDs& toon){
   glUniform3f(toon.locLightPosition,lightPosition.x,lightPosition.y,lightPosition.z);
   glUniform3f(toon.locMaterialDiffuse, materialDiffuseColor.r, materialDiffuseColor.g, materialDiffuseColor.b);
   glUniform1ui(toon.locDisplaySilhouette, displaySilhouette);
-  glUniform1f(toon.locEps,eps);
-  glUniform3f(toon.locSilhouetteColor, silhouetteColor.r, silhouetteColor.g, silhouetteColor.b);
+  glUniform1i(toon.locSilhouetteTex, 0);
 }
 
 // Affectation de valeurs pour les variables uniformes du shader de Gooch
@@ -483,6 +515,8 @@ void traceObjet()
  else if (shaderType == 1){
   // Activation du shader program contrôlant l'affichage du shader Toon
   glUseProgram(toonIds.programID);
+  // Utilisation de la texture de seuillage pour la silhouette
+  glBindTexture(GL_TEXTURE_1D, silhouetteTex);
   // Affectation de valeurs pour les variables uniformes du shader Toon
   setToonUniformValues(toonIds);
  }
@@ -498,6 +532,8 @@ void traceObjet()
   glDrawElements(GL_TRIANGLES,  sizeof(indices), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
 	glBindVertexArray(0);    // on desactive les VAO
   glUseProgram(0);         // et le pg
+  // Ainsi que d'éventuelles textures utilisées (cas du shader Toon)
+  glBindTexture(GL_TEXTURE_1D, 0);
 
 }
 
@@ -585,12 +621,12 @@ void clavier(unsigned char touche,int x,int y)
       displaySilhouette = (displaySilhouette + 1) % 2;
       glutPostRedisplay();
       break;
-    case '+' : /*Augmente l'effet de bord*/
+    case '+' : /*Augmente l'effet de bord de la silhouette*/
        eps += 0.1;
       //if ( eps > 1.)  eps = 1.;
       glutPostRedisplay();
       break;
-    case '-' : /* Diminue l'effet de bord */
+    case '-' : /* Diminue l'effet de bord de la silhouette*/
        eps -= 0.1;
       //if ( eps < 0.)  eps = 0.;
       glutPostRedisplay();
@@ -657,10 +693,3 @@ void mouseMotion(int x, int y)
 
     glutPostRedisplay();
 }
-
-
-
-
-
-
-

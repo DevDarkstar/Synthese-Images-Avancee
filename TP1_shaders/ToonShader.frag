@@ -6,8 +6,7 @@ uniform vec3 materialDiffuse; // Couleur de la diffuse
 uniform float Kd; // Coefficient de la lumière diffuse
 uniform vec3 objectColor; // Couleur de l'objet
 uniform uint displaySilhouette; // Paramètre contrôlant l'affichage de la silhouette de l'objet
-uniform vec3 silhouetteColor; // Couleur de la silhouette autour de l'objet
-uniform float epsilon; // Paramètre contrôlant l'intensité de l'effet de bord (silhouette) autour de l'objet
+uniform sampler1D silhouetteTex;
 
 in VS_OUT{
     vec3 fragPosition; // Position du sommet dans l'espace global
@@ -36,16 +35,16 @@ void main(){
     else
         diffuse = Kd * vec3(0.47, 0.71, 1.0);
 
-    vec3 silhouetteBorder;
-    // Calcul du vecteur partant du sommet du maillage et allant en direction de la vue de la caméra
-    vec3 viewDir = normalize(cameraPosition - fs_in.fragPosition);
     // Si l'affichage de la silhouette est actif
-    if (displaySilhouette == 1)
-        // Si le produit scalaire entre la vue caméra et la normale au sommet est inférieure ou égal à la valeur epsilon
-        if (dot(viewDir, normalized_normal) <= epsilon)
-            finalColor = vec4(silhouetteColor, 1.0);
-        else
-            finalColor = vec4(diffuse * objectColor, 1.0);
+    if (displaySilhouette == 1){
+        // Calcul du vecteur partant du sommet du maillage et allant en direction de la vue de la caméra
+        vec3 viewDir = normalize(cameraPosition - fs_in.fragPosition);
+        // Calcul du produit scalaire entre la vue et la normale au sommet en prenant un résultat compris dans l'intervalle [0,1]
+        float value = max(dot(viewDir, normalized_normal), 0.0);
+        // Récupération de la couleur associée à cette valeur dans la texture 1D de seuillage
+        vec3 color = texture(silhouetteTex, value).rgb;
+        finalColor = vec4(diffuse * color * objectColor, 1.0);
+    }
     else
         finalColor = vec4(diffuse * objectColor, 1.0);
 }
