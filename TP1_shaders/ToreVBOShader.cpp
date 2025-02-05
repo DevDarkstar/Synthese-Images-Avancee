@@ -196,7 +196,7 @@ int i0,i1,i2,i3,i4,i5;
 }
 }
 
-void initSilhouetteTexture(){
+void setSilhouetteData(){
   // Création des données à stocker dans la texture de seuillage
   for(int i = 0; i < SILHOUETTE_BUFFER_SIZE; i++){
     // Calcul de la valeur à l'indice i du tableau comprise entre 0 et 1
@@ -207,6 +207,11 @@ void initSilhouetteTexture(){
     else
       silhouetteData[i] = vec3(1.,1.,1.);
   }
+}
+
+void initSilhouetteTexture(){
+  // Remplissage de la texture de seuillage pour la silhouette
+  setSilhouetteData();
   // Création d'une texture 1D qui contiendra les valeurs de texture de la silhouette
   glGenTextures(1, &silhouetteTex);
   // Utilisation de la texture 1D
@@ -624,11 +629,21 @@ void clavier(unsigned char touche,int x,int y)
     case '+' : /*Augmente l'effet de bord de la silhouette*/
       eps += 0.1;
       if ( eps > 1.)  eps = 1.;
+      //Mise à jour des données de la texture de seuillage avec la nouvelle valeur de epsilon
+      glBindTexture(GL_TEXTURE_1D, silhouetteTex);
+      setSilhouetteData();
+      glTexSubImage1D(GL_TEXTURE_1D, 0, 0, SILHOUETTE_BUFFER_SIZE, GL_RGB, GL_FLOAT, silhouetteData);
+      glBindTexture(GL_TEXTURE_1D, 0); 
       glutPostRedisplay();
       break;
     case '-' : /* Diminue l'effet de bord de la silhouette*/
       eps -= 0.1;
       if ( eps < 0.)  eps = 0.;
+      //Mise à jour des données de la texture de seuillage avec la nouvelle valeur de epsilon
+      glBindTexture(GL_TEXTURE_1D, silhouetteTex);
+      setSilhouetteData();
+      glTexSubImage1D(GL_TEXTURE_1D, 0, 0, SILHOUETTE_BUFFER_SIZE, GL_RGB, GL_FLOAT, silhouetteData);
+      glBindTexture(GL_TEXTURE_1D, 0);
       glutPostRedisplay();
       break;
       
