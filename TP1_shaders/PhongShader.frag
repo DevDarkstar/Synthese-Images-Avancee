@@ -8,12 +8,11 @@ struct Material{
     float shininess; // Brillance de l'objet (utilisé pour le calcul de l'intensité de la spéculaire)
     vec3 ambient; // Couleur de la lumière ambiante
     vec3 diffuse; // Couleur de la lumière diffuse
+    vec3 objectColor; // Couleur de l'objet
 };
 
 uniform vec3 lightPosition;
 uniform Material material;
-uniform samplerCube texMap;
-uniform vec3 objectColor; // Couleur de l'objet
 uniform float Ka; // Coefficient de la lumière ambiante
 uniform float Kd; // Coefficient de la lumière diffuse
 uniform float Ks; // Coefficient de la lumière spéculaire
@@ -45,5 +44,5 @@ void main() {
     vec3 specular = Ks * pow(max(dot(viewDir, reflected_vector), 0.0), material.shininess) * material.specular;
 
     // Calcul de la couleur finale du sommet en tenant compte des couleurs ambiante, diffuse et spéculaire
-    finalColor = vec4((ambient + diffuse + specular) * objectColor, 1.0);
+    finalColor = vec4((ambient + diffuse + specular) * material.objectColor, 1.0);
 }

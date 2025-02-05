@@ -235,7 +235,7 @@ void getUniformLocationPhong(PhongIDs& phong){
   phong.MatrixIDPerspective = glGetUniformLocation(phong.programID, "PERSPECTIVE");
 
   // Récupération des emplacements des variables unfiformes du shader de Phong
-  phong.locObjectColor = glGetUniformLocation(phong.programID, "objectColor");
+  phong.locObjectColor = glGetUniformLocation(phong.programID, "material.objectColor");
   phong.locCameraPosition = glGetUniformLocation(phong.programID, "cameraPosition");
   phong.locAmbientCoefficient = glGetUniformLocation(phong.programID, "Ka");
   phong.locDiffuseCoefficient = glGetUniformLocation(phong.programID, "Kd");
@@ -622,13 +622,13 @@ void clavier(unsigned char touche,int x,int y)
       glutPostRedisplay();
       break;
     case '+' : /*Augmente l'effet de bord de la silhouette*/
-       eps += 0.1;
-      //if ( eps > 1.)  eps = 1.;
+      eps += 0.1;
+      if ( eps > 1.)  eps = 1.;
       glutPostRedisplay();
       break;
     case '-' : /* Diminue l'effet de bord de la silhouette*/
-       eps -= 0.1;
-      //if ( eps < 0.)  eps = 0.;
+      eps -= 0.1;
+      if ( eps < 0.)  eps = 0.;
       glutPostRedisplay();
       break;
       
