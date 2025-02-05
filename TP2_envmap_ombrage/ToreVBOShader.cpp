@@ -35,6 +35,12 @@ using namespace std;
 #define N_VERTS_BY_FACE  3
 #define N_FACES  12
 
+#define SHADOW_WIDTH 1024
+#define SHADOW_HEIGHT 1024
+
+#define PLAN_R 5
+#define PLAN_r 5
+
 #define NB_R 40
 #define NB_r 20
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -44,11 +50,22 @@ GLuint indices[NB_R*NB_r*6]; // x6 car pour chaque face quadrangulaire on a 6 in
 GLfloat coordTexture[(NB_R+1)*(NB_r+1)*2] ; // x 2 car U+V par sommets
 GLfloat normales[(NB_R+1)*(NB_r+1)*3];
 
+// Création des mêmes tableaux cette fois pour stocker les informations d'un plan
+// Pour les sommets,nous avons 4 points composés chacun de 3 coordonnées
+// Pour les coordonnées de textures, nous avons 2 coordonnées de textures par sommet donc 8 coordonnées au total
+// Pour les normales, nous avons 3 coordonnées de normales par sommets, soit 12 coordonnées au total
+GLfloat sommets_plan[(PLAN_R+1)*(PLAN_r+1)*8]; 
+// Pour les indices des faces, nous avons donc deux faces triangulaires pour former un plan, soit 6 indices
+GLuint indices_plan[(PLAN_R)*(PLAN_r)*6];
+
 // initialisations
 
-void genereVBO();
-void deleteVBO();
+void genereVBOTore();
+void deleteVBOTore();
+void genereVBOPlan();
+void deleteVBOPlan();
 void traceObjet();
+void traceShadowEffect();
 
 // fonctions de rappel de glut
 void affichage();
@@ -70,7 +87,10 @@ float cameraAngleY;
 float cameraDistance=0.;
 
 // variables Handle d'opengl
+// VAO et VBOs pour la création du Tore
 GLuint VBO_sommets,VBO_normales, VBO_indices,VBO_UVtext,VAO;
+// VAO et VBOs pour la création du plan
+GLuint VBO_sommets_plan, VBO_indices_plan, VAO_plan;
 //--------------------------
 // Identifiants pour l'affichage du tore sur lequel s'applique les reflets d'une skybox
 struct SkyboxIDs{
@@ -95,8 +115,35 @@ struct ToonIDs{
   GLuint locTexture; // Texture classique
 };
 
+// Shader d'ombrage (utilisé pour remplir la texture des ombres portées)
+struct ShadowIDs{
+  GLuint programID; // Gestionnaire du "shader program"
+  GLuint MatrixIDModel; // Matrice modèle
+  GLuint locLightSpaceMatrix;
+};
+
+// Shader de Phong (pour le shader avec effet d'ombrage)
+struct PhongIDs{
+  GLuint programID; // Gestionnaire du "shader program"
+  GLuint MatrixIDView,MatrixIDModel,MatrixIDPerspective; // Matrices modèle, vue et projection
+  GLuint locObjectColor; // Couleur de l'objet
+  GLuint locCameraPosition; // Position de la caméra
+  GLuint locMaterialShininess; // Brillance de l'objet
+  GLuint locMaterialSpecular; // Couleur de la spéculaire
+  GLuint locLightPosition ; // Position de la lumière
+  GLuint locMaterialAmbient; // Couleur de la lumière ambiante
+  GLuint locMaterialDiffuse; // Couleur de la lumière diffuse
+  GLuint locAmbientCoefficient; // Coefficient de la lumière ambiante Ka
+  GLuint locDiffuseCoefficient; // Coefficient de la lumière diffuse Kd
+  GLuint locSpecularCoefficient; // Coefficient de la lumière spéculaire Ks
+  GLuint locShadowTexture; // Texture d'ombrage
+  GLuint locLightSpaceMatrix;
+};
+
 SkyboxIDs skyboxIds;
 ToonIDs toonIds;
+ShadowIDs shadowIds;
+PhongIDs phongIds;
 
 // location des VBO
 //------------------
@@ -112,8 +159,8 @@ vec3 cameraPosition(0.,0.,3.); // Position de la caméra
 vec3 objectColor(1.0,0.5,0.0); // Couleur de l'objet (orange)
 GLfloat materialShininess=16.; // Brillance de l'objet
 vec3 materialSpecularColor(0.47,0.71,1.);  // couleur de la spéculaire (bleu ciel)
-vec3 materialAmbientColor(1.,1.,1.); // couleur de la lumière ambiante (blanc)
-vec3 materialDiffuseColor(0.,1.,1.); // couleur de la lumière diffuse (cyan)
+vec3 materialAmbientColor(0.7,0.7,0.7); // couleur de la lumière ambiante (gris clair)
+vec3 materialDiffuseColor(1.,1.,1.); // couleur de la lumière diffuse (blanc)
 
 // la lumière
 //-----------
@@ -124,17 +171,21 @@ GLfloat Ks = .7; // Coefficient de la lumière spéculaire
 
 glm::mat4 MVP;      // justement la voilà
 glm::mat4 Model, View, Projection;    // Matrices constituant MVP
+glm::mat4 LightSpaceMatrix; // Matrice de l'espace de la lumière
 
 GLfloat textureMix = 0.5f; // Paramètre de mixage entre une texture classique et une texture type skybox
 GLfloat toonMix = 0.5f;
 GLuint shaderType; // type de shader actif (permet de contrôler le shader à afficher à l'écran)
-// 0 = Phong, 1 = Toon, 2 = Gooch
+// 0 = Environment Map, 1 = Mix Environment Map, Texture simple et shader Toon, 2 = Effet d'ombrage
+// Gestionnaires pour le FBO et la texture d'ombrage
+GLuint depthMapFBO;
+GLuint depthMapBuffer;
 
 // Dimensions de la fenêtre d'affichage
 int screenHeight = 500;
 int screenWidth = 500;
 
-// pour la texcture
+// pour la texture
 //-------------------
 GLuint image ;
 GLuint bufTexture,bufNormalMap;
@@ -181,6 +232,47 @@ int i0,i1,i2,i3,i4,i5;
    indices[(i*NB_r*6)+ (j*6)+5]=(unsigned int)(((i)*(NB_r+1))+ (j+1));
 }
 
+}
+
+void createPlane()
+{
+
+  // Définition de la longueur et de la hauteur du plan
+  const GLfloat width = 8.0f;
+  const GLfloat height = 8.0f;
+  // Remplissage des coordonnées des sommets du plan
+  for(int i = 0; i < PLAN_R; i++)
+  {
+    for (int j = 0; j < PLAN_r; j++)
+    {
+      int index = (i * PLAN_r + j) * 8;
+      // Coordonnées des sommets
+      sommets_plan[index] = (j * width / (PLAN_r - 1)) - (width / 2);
+      sommets_plan[index+1] = 0.0f;
+      sommets_plan[index+2] = (i * height / (PLAN_R - 1)) - (height / 2);
+      // Normales
+      sommets_plan[index+3] = 0.0f;
+      sommets_plan[index+4] = 1.0f;
+      sommets_plan[index+5] = 0.0f;
+      // Coordonnées de texture
+      sommets_plan[index+6] = (sommets_plan[index] + width) / 2*width;
+      sommets_plan[index+7] = (sommets_plan[index+2] + height) / 2*height;
+    }
+  } 
+
+  for(int i = 0; i < PLAN_R; i++)
+  {
+    for(int j = 0; j < PLAN_r; j++)
+    {
+      int index = (i * PLAN_r + j) * 6;
+      indices_plan[index]= (unsigned int)(i*PLAN_r + j); 
+      indices_plan[index+1]=(unsigned int)((i+1)*PLAN_r + (j));
+      indices_plan[index+2]=(unsigned int)((i+1)*PLAN_r + (j+1));
+      indices_plan[index+3]=(unsigned int)(i*PLAN_r + j);
+      indices_plan[index+4]=(unsigned int)((i+1)*PLAN_r + (j+1));
+      indices_plan[index+5]=(unsigned int)(i*PLAN_r + (j+1));
+    }
+  }
 }
 
 //----------------------------------------
@@ -230,6 +322,35 @@ GLubyte* glmReadPPM(const char* filename, int* width, int* height)
     return image;
 }
 
+void initShadowTexture(void)
+{
+  //Initialisation du framebuffer
+  glGenFramebuffers(1, &depthMapFBO);
+
+  //Initialisation de la texture d'ombrage
+  glGenTextures(1, &depthMapBuffer);
+  // Utilisation de la texture	
+  glBindTexture(GL_TEXTURE_2D, depthMapBuffer);
+  // Initialisation du contenu de la texture (par défaut NULL car cette dernière sera remplie dans un shader dédié)
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+  // Paramétrages de la texture
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);	
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);	
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+   
+  //Utilisation du framebuffer
+  glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+  //Attachement de la texture d'ombrage au framebuffer
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMapBuffer, 0);
+  glDrawBuffer(GL_NONE);
+  glReadBuffer(GL_NONE);
+  // Désactivation du framebuffer
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  // Désactivation de la texture une fois les paramétrages effectués
+  glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 //----------------------------------------
 void initTexture(void)
 //-----------------------------------------
@@ -240,8 +361,6 @@ void initTexture(void)
   image = glmReadPPM(texture_link, &iwidth, &iheight);
   //Initialisation de la texture
 	glGenTextures(1, &texture);
-  // Utilisation de l'unité de texture 1 pour y stocker la texture classique
-  glActiveTexture(GL_TEXTURE0);
   // Utilisation de la texture 2D
 	glBindTexture(GL_TEXTURE_2D, texture);
   // Affectation de ses paramètres
@@ -259,8 +378,6 @@ void initTexture(void)
 void initSkyboxTexture(void){
   //Initialisation de la texture
   glGenTextures(1, &skyboxTexture);
-  // Utilisation de l'unité de texture 1 pour y stocker la texture de Sky Box
-  glActiveTexture(GL_TEXTURE1);
   // Utilisation de la texture de type Cube Map
   glBindTexture(GL_TEXTURE_CUBE_MAP, skyboxTexture);
 
@@ -305,7 +422,7 @@ void getUniformLocationSkybox(SkyboxIDs& skybox){
   skybox.MatrixIDModel = glGetUniformLocation(skybox.programID, "MODEL");
   skybox.MatrixIDPerspective = glGetUniformLocation(skybox.programID, "PERSPECTIVE");
 
-  // Récupération des emplacements des variables unfiformes du shader de la Skybox
+  // Récupération des emplacements des variables uniformes du shader de la Skybox
   skybox.locLightPosition = glGetUniformLocation(skybox.programID, "lightPosition");
   skybox.locSkyboxTexture = glGetUniformLocation(skybox.programID, "skyboxTexture");
 }
@@ -320,7 +437,7 @@ void getUniformLocationToon(ToonIDs& toon){
   toon.MatrixIDModel = glGetUniformLocation(toon.programID, "MODEL");
   toon.MatrixIDPerspective = glGetUniformLocation(toon.programID, "PERSPECTIVE");
 
-  // Récupération des emplacements des variables unfiformes du shader de Toon
+  // Récupération des emplacements des variables uniformes du shader de Toon
   toon.locObjectColor = glGetUniformLocation(toon.programID, "objectColor");
   toon.locCameraPosition = glGetUniformLocation(toon.programID, "cameraPosition");
   toon.locDiffuseCoefficient = glGetUniformLocation(toon.programID, "Kd");
@@ -330,6 +447,43 @@ void getUniformLocationToon(ToonIDs& toon){
   toon.locToonMix = glGetUniformLocation(toon.programID, "toonMix");
   toon.locTexture = glGetUniformLocation(toon.programID, "classicTexture");
   toon.locSkyboxTexture = glGetUniformLocation(toon.programID, "skyboxTexture");
+}
+
+// Récupération des emplacements des variables uniformes pour le shader créant la texture d'ombrage
+void getUniformLocationShadow(ShadowIDs& shadow){
+  //Chargement des vertex et fragment shaders pour la texture d'ombrage
+  shadow.programID = LoadShaders("ShadowShader.vert", "ShadowShader.frag");
+
+  // Récupération des emplacements des matrices modèle, vue et projection dans les shaders
+  shadow.MatrixIDModel = glGetUniformLocation(shadow.programID, "MODEL");
+
+  // Récupération des emplacements des variables uniformes du shader de la texture d'ombrage
+  shadow.locLightSpaceMatrix = glGetUniformLocation(shadow.programID, "lightSpaceMatrix");
+}
+
+// Récupération des emplacements des variables uniformes pour le shader de Phong
+void getUniformLocationPhong(PhongIDs& phong){
+  //Chargement des vertex et fragment shaders pour Phong
+  phong.programID = LoadShaders("PhongShader.vert", "PhongShader.frag");
+ 
+  // Récupération des emplacements des matrices modèle, vue et projection dans les shaders
+  phong.MatrixIDView = glGetUniformLocation(phong.programID, "VIEW");
+  phong.MatrixIDModel = glGetUniformLocation(phong.programID, "MODEL");
+  phong.MatrixIDPerspective = glGetUniformLocation(phong.programID, "PERSPECTIVE");
+
+  // Récupération des emplacements des variables uniformes du shader de Phong
+  phong.locObjectColor = glGetUniformLocation(phong.programID, "material.objectColor");
+  phong.locCameraPosition = glGetUniformLocation(phong.programID, "cameraPosition");
+  phong.locAmbientCoefficient = glGetUniformLocation(phong.programID, "Ka");
+  phong.locDiffuseCoefficient = glGetUniformLocation(phong.programID, "Kd");
+  phong.locSpecularCoefficient = glGetUniformLocation(phong.programID, "Ks");
+  phong.locMaterialAmbient = glGetUniformLocation(phong.programID, "material.ambient");
+  phong.locLightPosition = glGetUniformLocation(phong.programID, "lightPosition");
+  phong.locMaterialDiffuse = glGetUniformLocation(phong.programID, "material.diffuse");
+  phong.locMaterialShininess = glGetUniformLocation(phong.programID, "material.shininess");
+  phong.locMaterialSpecular = glGetUniformLocation(phong.programID, "material.specular");
+  phong.locShadowTexture = glGetUniformLocation(phong.programID, "shadowTexture");
+  phong.locLightSpaceMatrix = glGetUniformLocation(phong.programID, "lightSpaceMatrix");
 }
 
 //----------------------------------------
@@ -344,6 +498,10 @@ void initOpenGL(void)
   getUniformLocationSkybox(skyboxIds);
   // Récupération des emplacements des variables uniformes pour le shader Toon
   getUniformLocationToon(toonIds);
+  // Récupération des emplacements des variables uniformes pour le shader créant la texture d'ombrage
+  getUniformLocationShadow(shadowIds);
+  // Récupération des emplacements des variables uniformes pour le shader de Phong (qui sera utilisé pour l'effet d'ombrage)
+  getUniformLocationPhong(phongIds);
 
   // Projection matrix : 65 Field of View, 1:1 ratio, display range : 1 unit <-> 1000 units
   // ATTENTIOn l'angle est donné en radians si f GLM_FORCE_RADIANS est défini sinon en degré
@@ -381,15 +539,20 @@ std::cout << "***** Info GPU *****" << std::endl;
 
 	initOpenGL(); 
 
-   
+  // Remplissage des tableaux de données du tore
   createTorus(1.,.3);
+  // Remplissage des tableaux des données du plan
+  createPlane();
 
   //Initialisation des textures utilisées dans le programme
+  initShadowTexture();
   initTexture();
   initSkyboxTexture();
 
-  // construction des VBO a partir des tableaux du cube deja construit
-  genereVBO();
+  // construction des VBO à partir des tableaux du tore
+  genereVBOTore();
+  // construction des VBO à partir des tableaux du plan
+  genereVBOPlan();
   
   /* enregistrement des fonctions de rappel */
   glutDisplayFunc(affichage);
@@ -403,11 +566,15 @@ std::cout << "***** Info GPU *****" << std::endl;
 
   // Suppression des shader programs
   glDeleteProgram(skyboxIds.programID);
-  deleteVBO();
+  glDeleteProgram(toonIds.programID);
+  glDeleteProgram(shadowIds.programID);
+  glDeleteProgram(phongIds.programID);
+  deleteVBOTore();
+  deleteVBOPlan();
   return 0;
 }
 
-void genereVBO ()
+void genereVBOTore()
 {
   if(glIsBuffer(VBO_sommets) == GL_TRUE) glDeleteBuffers(1, &VBO_sommets);
   glGenBuffers(1, &VBO_sommets);
@@ -436,13 +603,13 @@ void genereVBO ()
   glEnableVertexAttribArray(indexUVTexture);
 
   glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
-  glVertexAttribPointer ( indexVertex, 3, GL_FLOAT, GL_FALSE, 0, (void*)0 );
+  glVertexAttribPointer (indexVertex, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
 
   glBindBuffer(GL_ARRAY_BUFFER, VBO_normales);
-  glVertexAttribPointer ( indexNormale, 3, GL_FLOAT, GL_FALSE, 0, (void*)0  );
+  glVertexAttribPointer (indexNormale, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
 
   glBindBuffer(GL_ARRAY_BUFFER, VBO_UVtext);
-  glVertexAttribPointer (indexUVTexture, 2, GL_FLOAT, GL_FALSE, 0,  (void*)0  );
+  glVertexAttribPointer (indexUVTexture, 2, GL_FLOAT, GL_FALSE, 0, (void*)0);
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VBO_indices);
 
@@ -450,20 +617,55 @@ void genereVBO ()
   // on désactive le dernier VBO et le VAO pour qu'ils ne soit pas accidentellement modifié 
  glBindBuffer(GL_ARRAY_BUFFER, 0);
  glBindVertexArray(0);
- 
 }
+
+void genereVBOPlan(){
+  if(glIsBuffer(VBO_sommets_plan) == GL_TRUE) glDeleteBuffers(1, &VBO_sommets_plan);
+  glGenBuffers(1, &VBO_sommets_plan);
+  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets_plan);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(sommets_plan),sommets_plan , GL_STATIC_DRAW);
+
+  if(glIsBuffer(VBO_indices_plan) == GL_TRUE) glDeleteBuffers(1, &VBO_indices_plan);
+  glGenBuffers(1, &VBO_indices_plan); // ATTENTIOn IBO doit etre un GL_ELEMENT_ARRAY_BUFFER
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VBO_indices_plan);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices_plan),indices_plan , GL_STATIC_DRAW);
+
+  glGenVertexArrays(1, &VAO_plan);
+  glBindVertexArray(VAO_plan); // ici on bind le VAO , c'est lui qui recupèrera les configurations des VBO glVertexAttribPointer , glEnableVertexAttribArray...
+  glEnableVertexAttribArray(indexVertex);
+  glEnableVertexAttribArray(indexNormale);
+  glEnableVertexAttribArray(indexUVTexture);
+
+  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets_plan);
+  glVertexAttribPointer (indexVertex, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (void*)0);
+  glVertexAttribPointer (indexNormale, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (void*)(3 * sizeof(GLfloat)));
+  glVertexAttribPointer (indexUVTexture, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat),  (void*)(6 * sizeof(GLfloat)));
+
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VBO_indices_plan);
+ 
+   // une fois la config terminée   
+   // on désactive le dernier VBO et le VAO pour qu'ils ne soit pas accidentellement modifié 
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindVertexArray(0);
+}
+
 //-----------------
-void deleteVBO ()
+void deleteVBOTore()
 //-----------------
 {
-    glDeleteBuffers(1, &VBO_sommets);
-   glDeleteBuffers(1, &VBO_normales);
-    glDeleteBuffers(1, &VBO_indices);
-    glDeleteBuffers(1, &VBO_UVtext);
-        glDeleteBuffers(1, &VAO);
+  glDeleteBuffers(1, &VBO_sommets);
+  glDeleteBuffers(1, &VBO_normales);
+  glDeleteBuffers(1, &VBO_indices);
+  glDeleteBuffers(1, &VBO_UVtext);
+  glDeleteBuffers(1, &VAO);
 }
 
-
+void deleteVBOPlan()
+{
+  glDeleteBuffers(1, &VBO_sommets_plan);
+  glDeleteBuffers(1, &VBO_indices_plan);
+  glDeleteBuffers(1, &VAO_plan);
+}
 
 /* fonction d'affichage */
 void affichage()
@@ -477,17 +679,26 @@ void affichage()
   glColor3f(1.0,1.0,1.0);
   glPointSize(2.0);
  
-     View       = glm::lookAt(   cameraPosition, // Camera is at (0,0,3), in World Space
-                                            glm::vec3(0,0,0), // and looks at the origin
-                                            glm::vec3(0,1,0)  // Head is up (set to 0,-1,0 to look upside-down)
-                                             );
-     Model = glm::mat4(1.0f);
-     Model = glm::translate(Model,glm::vec3(0,0,cameraDistance));
-     Model = glm::rotate(Model,glm::radians(cameraAngleX),glm::vec3(1, 0, 0) );
-     Model = glm::rotate(Model,glm::radians(cameraAngleY),glm::vec3(0, 1, 0) );
-     Model = glm::scale(Model,glm::vec3(.8, .8, .8));
-     MVP = Projection * View * Model;
-     traceObjet();        // trace VBO avec ou sans shader
+  View       = glm::lookAt(cameraPosition, // Camera is at (0,0,3), in World Space
+                          glm::vec3(0,0,0), // and looks at the origin
+                          glm::vec3(0,1,0)  // Head is up (set to 0,-1,0 to look upside-down)
+                          );
+  Model = glm::mat4(1.0f);
+  Model = glm::translate(Model,glm::vec3(0,0,cameraDistance));
+  Model = glm::rotate(Model,glm::radians(cameraAngleX),glm::vec3(1, 0, 0) );
+  Model = glm::rotate(Model,glm::radians(cameraAngleY),glm::vec3(0, 1, 0) );
+  Model = glm::scale(Model,glm::vec3(.8, .8, .8));
+  MVP = Projection * View * Model;
+
+  glm::mat4 lightProjection = glm::ortho(-10.f, 10.f, -10.f, 10.f, 0.25f, 5.0f);
+  glm::mat4 lightView = glm::lookAt(lightPosition, glm::vec3( 0.0f, 0.0f, 0.0f), glm::vec3( 0.0f, 1.0f, 0.0f));
+  LightSpaceMatrix = lightProjection * lightView;
+
+  if(shaderType == 0 || shaderType == 1)
+    traceObjet();// trace VBO avec ou sans shader
+  else
+    traceShadowEffect();
+
 
  /* on force l'affichage du resultat */
    glutPostRedisplay();
@@ -506,7 +717,7 @@ void setSkyBoxUniformValues(SkyboxIDs& skybox){
 
 // Affectation de valeurs pour les variables uniformes du shader Toon
 void setToonUniformValues(ToonIDs& toon){
-  //on envoie les données necessaires aux shaders */
+  //on envoie les données necessaires aux shaders
   glUniformMatrix4fv(toon.MatrixIDView, 1, GL_FALSE,&View[0][0]);
   glUniformMatrix4fv(toon.MatrixIDModel, 1, GL_FALSE, &Model[0][0]);
   glUniformMatrix4fv(toon.MatrixIDPerspective, 1, GL_FALSE, &Projection[0][0]);
@@ -520,8 +731,49 @@ void setToonUniformValues(ToonIDs& toon){
   glUniform1f(toon.locToonMix, toonMix);
 }
 
+// Affectation de valeurs pour les variables uniformes du shader de la texture d'ombrage
+void setShadowUniformValues(ShadowIDs& shadow){
+  //on envoie les données necessaires aux shaders
+  glUniformMatrix4fv(shadow.MatrixIDModel, 1, GL_FALSE, &Model[0][0]);
+  glUniformMatrix4fv(shadow.locLightSpaceMatrix, 1, GL_FALSE, &LightSpaceMatrix[0][0]);
+}
+
+// Affectation de valeurs pour les variables uniformes du shader de Phong (effet d'ombrage)
+void setPhongUniformValues(PhongIDs& phong){
+  //on envoie les données necessaires aux shaders
+  glUniformMatrix4fv(phong.MatrixIDView, 1, GL_FALSE,&View[0][0]);
+  glUniformMatrix4fv(phong.MatrixIDModel, 1, GL_FALSE, &Model[0][0]);
+  glUniformMatrix4fv(phong.MatrixIDPerspective, 1, GL_FALSE, &Projection[0][0]);
+
+  glUniform3f(phong.locObjectColor, objectColor.r, objectColor.g, objectColor.b);
+  glUniform3f(phong.locCameraPosition,cameraPosition.x, cameraPosition.y, cameraPosition.z);
+  glUniform1f(phong.locAmbientCoefficient, Ka);
+  glUniform1f(phong.locDiffuseCoefficient, Kd);
+  glUniform3f(phong.locMaterialAmbient, materialAmbientColor.r, materialAmbientColor.g, materialAmbientColor.b);
+  glUniform3f(phong.locLightPosition,lightPosition.x,lightPosition.y,lightPosition.z);
+  glUniform3f(phong.locMaterialDiffuse, materialDiffuseColor.r, materialDiffuseColor.g, materialDiffuseColor.b);
+  glUniform1f(phong.locMaterialShininess, materialShininess);
+  glUniform3f(phong.locMaterialSpecular, materialSpecularColor.r,materialSpecularColor.g,materialSpecularColor.b);
+  glUniform1f(phong.locSpecularCoefficient, Ks);
+  glUniformMatrix4fv(phong.locLightSpaceMatrix, 1, GL_FALSE, &LightSpaceMatrix[0][0]);
+}
+
+void traceTore()
+{
+  glBindVertexArray(VAO); // on active le VAO
+  glDrawElements(GL_TRIANGLES,  sizeof(indices), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
+	glBindVertexArray(0);    // on desactive les VAO
+}
+
+void tracePlan()
+{
+	glBindVertexArray(VAO_plan); // on active le VAO
+  glDrawElements(GL_TRIANGLES,  sizeof(indices_plan), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
+	glBindVertexArray(0);    // on desactive les VAO
+}
+
 //-------------------------------------
-//Trace le tore 2 via le VAO
+//Trace le tore 2 via le VAO (pour le shader d'environment map et le mix entre shader de Toon, environment map et texture classique)
 void traceObjet()
 //-------------------------------------
 {
@@ -530,43 +782,81 @@ void traceObjet()
   // Utilisation du shader program du shader de la SkyBox
   glUseProgram(skyboxIds.programID);
   setSkyBoxUniformValues(skyboxIds);
-  // Activation de l'unité contenant la texture de l'environment map
-  glActiveTexture(GL_TEXTURE1);
   // Utilisation de la texture
   glBindTexture(GL_TEXTURE_CUBE_MAP, skyboxTexture);
   // Affectation de la texture à la variable uniforme adéquate
-  glUniform1i(skyboxIds.locSkyboxTexture, 1);
+  glUniform1i(skyboxIds.locSkyboxTexture, 0);
  }
  // Sinon affichage du shader Toon mixant les textures d'environment et d'une texture classique
  else{
   // Utilisation du shader program du shader de la SkyBox
   glUseProgram(toonIds.programID);
   setToonUniformValues(toonIds);
-  // Activation de l'unité contenant la texture classique
+  // Activation d'une unité de texture pour stocker la texture de l'environment map
   glActiveTexture(GL_TEXTURE0);
-  // Utilisation de la texture
-  glBindTexture(GL_TEXTURE_2D, texture);
-  // Affectation de la texture à la variable uniforme adéquate
-  glUniform1i(toonIds.locTexture, 0);
-  // Activation de l'unité contenant la texture de l'environment map
-  glActiveTexture(GL_TEXTURE1);
   // Utilisation de la texture
   glBindTexture(GL_TEXTURE_CUBE_MAP, skyboxTexture);
   // Affectation de la texture à la variable uniforme adéquate
-  glUniform1i(toonIds.locSkyboxTexture, 1);
+  glUniform1i(toonIds.locSkyboxTexture, 0);
+  // Activation de l'unité contenant la texture classique
+  glActiveTexture(GL_TEXTURE1);
+  // Utilisation de la texture
+  glBindTexture(GL_TEXTURE_2D, texture);
+  // Affectation de la texture à la variable uniforme adéquate
+  glUniform1i(toonIds.locTexture, 1);
  }
  
   //pour l'affichage
-	glBindVertexArray(VAO); // on active le VAO
-  glDrawElements(GL_TRIANGLES,  sizeof(indices), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	glBindVertexArray(0);    // on desactive les VAO
+	traceTore();
   glUseProgram(0);         // et le pg
 
   // Désactivation des textures
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, 0);
   glActiveTexture(GL_TEXTURE1);
   glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void traceShadowEffect()
+{
+  // Première passe - création de l'ombrage via un shader dédié pour stockera l'ombre dans une texture via un framebuffer
+  // Utilisation du shader program dédié
+  glViewport(0,0, SHADOW_WIDTH, SHADOW_HEIGHT);
+  glUseProgram(shadowIds.programID);
+  // Utilisation du framebuffer
+  glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+
+  // Nettoyage du buffer de profondeur
+  glClear(GL_DEPTH_BUFFER_BIT);
+  setShadowUniformValues(shadowIds);
+  // Affichage du tore
+  traceTore();
+  // Affichage du plan
+  tracePlan();
+  glUseProgram(0);
+  // Désactivation du framebuffer
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glViewport(0,0,screenWidth, screenHeight);
+  // Nettoyage des buffers
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  // Deuxième passe - affichage du résultat en plus des propriétés des objets de la scène (plan + tore)
+  // Utilisation du shader program dédié
+  glUseProgram(phongIds.programID);
+  setPhongUniformValues(phongIds);
+  // Utilisation de la texture
+  glBindTexture(GL_TEXTURE_2D, depthMapBuffer);
+  
+  // Affectation de la texture à la variable uniforme dédiée
+  glUniform1i(phongIds.locShadowTexture, 0);
+  //Affichage du tore
+	traceTore();
+  //Affichage du plan
+  tracePlan();
+
+  // Désactivation du shader program
+  glUseProgram(0);
+  // Désactivation de la texture
+  glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void reshape(int w, int h)
@@ -643,6 +933,10 @@ void clavier(unsigned char touche,int x,int y)
       break;
     case 't' : /*Passage en mode d'affichage du tore en mixant l'environment map, une texture classique ainsi qu'un shader Toon*/
       shaderType = 1;
+      glutPostRedisplay();
+      break;
+    case 'o': /*Passage en mode d'affichage d'une scène composée d'un tore et d'un plan et matérialisant l'effet d'ombrage*/
+      shaderType = 2;
       glutPostRedisplay();
       break;
     case 'p' : /*Agit sur le mix entre le shader Toon et la texture classique*/
