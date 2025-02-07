@@ -236,7 +236,6 @@ int i0,i1,i2,i3,i4,i5;
 
 void createPlane()
 {
-
   // Définition de la longueur et de la hauteur du plan
   const GLfloat width = 8.0f;
   const GLfloat height = 8.0f;
@@ -255,22 +254,22 @@ void createPlane()
       sommets_plan[index+4] = 1.0f;
       sommets_plan[index+5] = 0.0f;
       // Coordonnées de texture
-      sommets_plan[index+6] = (sommets_plan[index] + width) / 2*width;
-      sommets_plan[index+7] = (sommets_plan[index+2] + height) / 2*height;
+      sommets_plan[index+6] = (GLfloat)i / (GLfloat)(PLAN_R - 1);
+      sommets_plan[index+7] = (GLfloat)j / (GLfloat)(PLAN_r - 1);
     }
   } 
 
-  for(int i = 0; i < PLAN_R; i++)
+  for(int i = 0; i < PLAN_R - 1; i++)
   {
-    for(int j = 0; j < PLAN_r; j++)
+    for(int j = 0; j < PLAN_r - 1; j++)
     {
       int index = (i * PLAN_r + j) * 6;
-      indices_plan[index]= (unsigned int)(i*PLAN_r + j); 
-      indices_plan[index+1]=(unsigned int)((i+1)*PLAN_r + (j));
+      indices_plan[index]= (unsigned int)(i*(PLAN_r) + j); 
+      indices_plan[index+1]=(unsigned int)((i+1)*PLAN_r + j);
       indices_plan[index+2]=(unsigned int)((i+1)*PLAN_r + (j+1));
-      indices_plan[index+3]=(unsigned int)(i*PLAN_r + j);
-      indices_plan[index+4]=(unsigned int)((i+1)*PLAN_r + (j+1));
-      indices_plan[index+5]=(unsigned int)(i*PLAN_r + (j+1));
+      indices_plan[index+3]=(unsigned int)(i*(PLAN_r) + j);
+      indices_plan[index+4]=(unsigned int)((i+1)*(PLAN_r) + (j+1));
+      indices_plan[index+5]=(unsigned int)(i*(PLAN_r) + (j+1));
     }
   }
 }
