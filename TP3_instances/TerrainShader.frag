@@ -46,8 +46,12 @@ void main() {
     vec3 specular = Ks * pow(max(dot(viewDir, reflected_vector), 0.0), material.shininess) * material.specular;
 
     // Récupération de la couleur du sommet par rapport à la texture du terrain
-    vec3 textureColor = texture(terrainTexture, fs_in.UVCoords).rgb;
+    vec4 textureColor = texture(terrainTexture, fs_in.UVCoords);
+    // Si la valeur alpha du pixel est inférieur à 0.2, il n'est pas affiché dans le rendu
+    if (textureColor.a < 0.1){
+        discard;
+    } 
 
     // Calcul de la couleur finale du sommet en tenant compte des couleurs ambiante, diffuse et spéculaire et de l'ombre portée de l'objet
-    finalColor = vec4((ambient + diffuse + specular) * textureColor, 1.0);
+    finalColor = vec4((ambient + diffuse + specular) * textureColor.rgb, 1.0);
 }

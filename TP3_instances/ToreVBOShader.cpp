@@ -110,7 +110,24 @@ struct TerrainIDs{
   GLuint locTerrainTexture; // Texture du terrain
 };
 
+// Shader pour l'affichage de la végétation
+struct FoliageIDs{
+  GLuint programID; // Gestionnaire du "shader program"
+  GLuint MatrixIDView,MatrixIDModel,MatrixIDPerspective; // Matrices modèle, vue et projection
+  GLuint locCameraPosition; // Position de la caméra
+  GLuint locMaterialShininess; // Brillance de l'objet
+  GLuint locMaterialSpecular; // Couleur de la spéculaire
+  GLuint locLightPosition ; // Position de la lumière
+  GLuint locMaterialAmbient; // Couleur de la lumière ambiante
+  GLuint locMaterialDiffuse; // Couleur de la lumière diffuse
+  GLuint locAmbientCoefficient; // Coefficient de la lumière ambiante Ka
+  GLuint locDiffuseCoefficient; // Coefficient de la lumière diffuse Kd
+  GLuint locSpecularCoefficient; // Coefficient de la lumière spéculaire Ks
+  GLuint locFoliageTexture; // Texture de végétation
+};
+
 TerrainIDs terrainIds;
+FoliageIDs foliageIds;
 
 // location des VBO
 //------------------
@@ -199,7 +216,7 @@ void createTerrain()
 void createFoliageSupport()
 {
   // Définition du rayon de chaque plan
-  float radius = 0.2f;
+  float radius = 0.4f;
   for(int i = 0; i < PLANE_SUPPORT; i++){
     // Calcul de l'angle du plan dans l'espace
     GLfloat angle = i * PI / 3.0f;
@@ -267,13 +284,16 @@ void createFoliageSupport()
 }
 
 //----------------------------------------
-void initTexture(const char* filepath, GLuint* handler)
+void initTexture(const char* filepath, GLuint* handler, bool hasTransparency)
 //-----------------------------------------
 {
  int iwidth,iheight,nrChannels;
   //GLubyte *  image = NULL;
- 
-  unsigned char* image = stbi_load(filepath, &iwidth, &iheight, &nrChannels, 0);
+  unsigned char* image = NULL;
+  if (hasTransparency)
+    image = stbi_load(filepath, &iwidth, &iheight, &nrChannels, 4);
+  else
+    image = stbi_load(filepath, &iwidth, &iheight, &nrChannels, 0);
   //Initialisation de la texture
 	glGenTextures(1, handler);
   // Utilisation de la texture 2D
@@ -281,10 +301,13 @@ void initTexture(const char* filepath, GLuint* handler)
   // Affectation de ses paramètres
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);	
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);	
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   // Remplissage de la texture à partir du contenu de la variable "image" chargée
-	glTexImage2D(GL_TEXTURE_2D, 0, 3, iwidth,iheight, 0, GL_RGB,GL_UNSIGNED_BYTE, image);
+  if (hasTransparency)
+	  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iwidth,iheight, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+  else
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, iwidth,iheight, 0, GL_RGB, GL_UNSIGNED_BYTE, image);
 
   // Désactivation de la texture une fois le paramétrage effectué
   glBindTexture(GL_TEXTURE_2D, 0); 
@@ -315,6 +338,29 @@ void getUniformLocationTerrain(TerrainIDs& terrain){
   terrain.locTerrainTexture = glGetUniformLocation(terrain.programID, "terrainTexture");
 }
 
+// Récupération des emplacements des variables uniformes pour l'affichage de la végétation
+void getUniformLocationFoliage(FoliageIDs& foliage){
+  //Chargement des vertex et fragment shaders pour l'affichage de la végétation
+  foliage.programID = LoadShaders("TerrainShader.vert", "TerrainShader.frag");
+ 
+  // Récupération des emplacements des matrices modèle, vue et projection dans les shaders
+  foliage.MatrixIDView = glGetUniformLocation(foliage.programID, "VIEW");
+  foliage.MatrixIDModel = glGetUniformLocation(foliage.programID, "MODEL");
+  foliage.MatrixIDPerspective = glGetUniformLocation(foliage.programID, "PERSPECTIVE");
+
+  // Récupération des emplacements des variables uniformes du shader de Phong
+  foliage.locCameraPosition = glGetUniformLocation(foliage.programID, "cameraPosition");
+  foliage.locAmbientCoefficient = glGetUniformLocation(foliage.programID, "Ka");
+  foliage.locDiffuseCoefficient = glGetUniformLocation(foliage.programID, "Kd");
+  foliage.locSpecularCoefficient = glGetUniformLocation(foliage.programID, "Ks");
+  foliage.locMaterialAmbient = glGetUniformLocation(foliage.programID, "material.ambient");
+  foliage.locLightPosition = glGetUniformLocation(foliage.programID, "lightPosition");
+  foliage.locMaterialDiffuse = glGetUniformLocation(foliage.programID, "material.diffuse");
+  foliage.locMaterialShininess = glGetUniformLocation(foliage.programID, "material.shininess");
+  foliage.locMaterialSpecular = glGetUniformLocation(foliage.programID, "material.specular");
+  foliage.locFoliageTexture = glGetUniformLocation(foliage.programID, "terrainTexture");
+}
+
 //----------------------------------------
 void initOpenGL(void)
 //----------------------------------------
@@ -325,6 +371,8 @@ void initOpenGL(void)
 
   // Récupération des emplacements des variables uniformes pour le shader de visualisation du terrain
   getUniformLocationTerrain(terrainIds);
+  // Récupération des emplacements des variables uniformes pour le shader de visualisation de la végétation
+  getUniformLocationFoliage(foliageIds);
 
   // Projection matrix : 65 Field of View, 1:1 ratio, display range : 1 unit <-> 1000 units
   // ATTENTIOn l'angle est donné en radians si f GLM_FORCE_RADIANS est défini sinon en degré
@@ -368,8 +416,8 @@ std::cout << "***** Info GPU *****" << std::endl;
   createFoliageSupport();
 
   //Initialisation des textures utilisées dans le programme
-  initTexture(terrainTexFilepath, &terrainTexture);
-  initTexture(grassTexFilepath, &grassTexture);
+  initTexture(terrainTexFilepath, &terrainTexture, false);
+  initTexture(grassTexFilepath, &grassTexture, true);
 
   // construction des VBO à partir des tableaux du plan
   genereVBOTerrain();
@@ -516,6 +564,24 @@ void setTerrainUniformValues(TerrainIDs& terrain){
   glUniform1f(terrain.locSpecularCoefficient, Ks);
 }
 
+// Affectation de valeurs pour les variables uniformes du shader gérant l'affichage du terrain
+void setFoliageUniformValues(FoliageIDs& foliage){
+  //on envoie les données necessaires aux shaders
+  glUniformMatrix4fv(foliage.MatrixIDView, 1, GL_FALSE,&View[0][0]);
+  glUniformMatrix4fv(foliage.MatrixIDModel, 1, GL_FALSE, &Model[0][0]);
+  glUniformMatrix4fv(foliage.MatrixIDPerspective, 1, GL_FALSE, &Projection[0][0]);
+
+  glUniform3f(foliage.locCameraPosition,cameraPosition.x, cameraPosition.y, cameraPosition.z);
+  glUniform1f(foliage.locAmbientCoefficient, Ka);
+  glUniform1f(foliage.locDiffuseCoefficient, Kd);
+  glUniform3f(foliage.locMaterialAmbient, materialAmbientColor.r, materialAmbientColor.g, materialAmbientColor.b);
+  glUniform3f(foliage.locLightPosition,lightPosition.x,lightPosition.y,lightPosition.z);
+  glUniform3f(foliage.locMaterialDiffuse, materialDiffuseColor.r, materialDiffuseColor.g, materialDiffuseColor.b);
+  glUniform1f(foliage.locMaterialShininess, materialShininess);
+  glUniform3f(foliage.locMaterialSpecular, materialSpecularColor.r,materialSpecularColor.g,materialSpecularColor.b);
+  glUniform1f(foliage.locSpecularCoefficient, Ks);
+}
+
 void traceTerrain()
 {
 	glBindVertexArray(VAO_terrain); // on active le VAO
@@ -548,11 +614,27 @@ void traceObjet()
   glUniform1i(terrainIds.locTerrainTexture, 0);
   // Affichage du terrain
   traceTerrain();
+
+  // Affchage de la végétation
+  // Utilisation du shader program adéquat
+  glUseProgram(foliageIds.programID);
+  // Affectation des valeurs aux variables uniformes dédiées dans le shader
+  setFoliageUniformValues(foliageIds);
+  // Activation d'une autre unité de texture pour la texture de la végétation
+  glActiveTexture(GL_TEXTURE1);
+  // Utilisation de la texture de végétation
+  glBindTexture(GL_TEXTURE_2D, grassTexture);
+  // Affectation de la texture à la variable uniforme correspondante
+  glUniform1i(foliageIds.locFoliageTexture, 1);
+  // Affichage de la végétation
   traceFoliageSupport();
   // Désactivation du shader program 
   glUseProgram(0);         // et le pg
 
-  // Désactivation de la texture
+  // Désactivation des textures
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, 0);
+  glActiveTexture(GL_TEXTURE1);
   glBindTexture(GL_TEXTURE_2D, 0);
 }
 
