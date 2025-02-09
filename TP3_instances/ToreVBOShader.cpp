@@ -18,6 +18,7 @@
 #include <GL/glew.h>
 #include <GL/freeglut.h>
 #include <math.h>
+#include <random>
 #include "shader.hpp"
 #include <string.h>
 #define STB_IMAGE_IMPLEMENTATION
@@ -26,6 +27,8 @@
 // Include GLM
 #include "../glm/glm.hpp"
 #include "../glm/gtc/matrix_transform.hpp"
+#include "../glm/gtc/type_ptr.hpp"
+
 using namespace glm;
 using namespace std;
 
@@ -39,11 +42,22 @@ using namespace std;
 
 #define PLAN_R 5
 #define PLAN_r 5
+#define TERRAIN_WIDTH 16.0 // Longueur du terrain
+#define TERRAIN_HEIGHT 16.0 // Largeur du terrain
+#define TEXTURE_NUMBER 8
+#define ATLAS_WIDTH 512 // Largeur de l'atlas de texture
+#define ATLAS_HEIGHT 256 // hauteur de l'atlas de texture
+#define ATLAS_ROW 2 // nombre de textures par ligne de l'atlas
+#define ATLAS_COLUMN 4 // nombre de textures par colonne de l'atlas
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
 #define PI 3.14159265358979323846
-#define PLANE_SUPPORT 3 // Nombre de plans utilisés pour afficher une plante
+#define FOLIAGE_PLANE_NUMBER 3 // Nombre de plans utilisés pour afficher une plante
+#define SUPPORT_RADIUS 1.0
+#define SUPPORT_MIN_RADIUS 0.2 // Rayon minimal de chaque plan de la végétation
+#define SUPPORT_MAX_RADIUS 0.7 // Rayon minimal de chaque plan de la végétation
+#define FOLIAGE_INSTANCES 50 // Nombre d'instances de végétation
 
 // Création des mêmes tableaux cette fois pour stocker les informations d'un plan
 // Pour les sommets,nous avons 4 points composés chacun de 3 coordonnées
@@ -55,11 +69,16 @@ GLuint indices_terrain[(PLAN_R)*(PLAN_r)*6];
 
 // Définition des tableaux de données pour les supports floraux
 // Chaque support est consitué de 3 plans, soient 12 points et chaque point est constitué de 3 coordonnées de position,
-// 3 coordonnées de normales et 2 coordonnées de texture, soit un total de 12 * (3 + 3 + 2) = 96 valeurs
-GLfloat sommets_support[96];
+// 3 coordonnées de normales, soit un total de 12 * (3 + 3) = 72 valeurs
+GLfloat sommets_support[72];
 // Pour le tableau d'indices, nous avons 3 plans pour représenter un support. Chaque plan peut se diviser en 2 triangles
 // et nous avons besoin de 3 indices pour tracer un triangle. Par conséquent, le nombre total de données est de 3 plans * 2 triangles * 3 indices = 18 valeurs
 GLuint indices_support[18];
+// Création d'un tableau de transformations aléatoires pour les instances de végétations
+glm::mat4 foliage_transformations[FOLIAGE_INSTANCES];
+// Création d'un tableau contenant les coordonnées UV permettant d'afficher une des 8 textures présentes dans
+// l'atlas sur un plant (il y a 8 textures, chaque plant est composé de 12 sommets, et nous avons de 2 coordonnées UV pour localiser la position de la texture) 
+GLfloat foliage_uv_coordinates[12*2*TEXTURE_NUMBER];
 
 // initialisations
 void genereVBOTerrain();
@@ -90,8 +109,8 @@ float cameraDistance=0.;
 // variables Handle d'opengl
 // VAO et VBOs pour la création du plan
 GLuint VBO_sommets_terrain, VBO_indices_terrain, VAO_terrain;
-// VAO et VBO pour la création du sopport de la végétation
-GLuint VBO_sommets_vegetation, VBO_indices_vegetation, VAO_vegetation;
+// VAO et VBO pour la création du support de la végétation
+GLuint VBO_sommets_vegetation, VBO_indices_vegetation, VBO_uv_coordinates, VAO_vegetation;
 //--------------------------
 
 // Shader pour l'affichage du terrain
@@ -124,6 +143,7 @@ struct FoliageIDs{
   GLuint locDiffuseCoefficient; // Coefficient de la lumière diffuse Kd
   GLuint locSpecularCoefficient; // Coefficient de la lumière spéculaire Ks
   GLuint locFoliageTexture; // Texture de végétation
+  GLuint locFoliageTransformation; // Tableau contenant l'ensemble des rotations des instances de la végétation
 };
 
 TerrainIDs terrainIds;
@@ -136,7 +156,7 @@ GLuint indexVertex=0, indexUVTexture=2, indexNormale=3;
 
 //variable pour paramétrage eclairage
 //--------------------------------------
-vec3 cameraPosition(0.,1.,3.); // Position de la caméra
+vec3 cameraPosition(0.,1.,5.); // Position de la caméra
 // le matériau
 //---------------
 GLfloat materialShininess=2.; // Brillance de l'objet
@@ -164,20 +184,22 @@ GLuint shaderType; // type de shader actif (permet de contrôler le shader à af
 int screenHeight = 500;
 int screenWidth = 500;
 
+// Initialisation de la génération de nombres pseudo-aléatoires
+std::random_device rd;
+// Création du moteur de génération
+std::default_random_engine engine(rd());
+
 // pour les textures
 //-------------------
 // Gestionnaires de texture
 GLuint terrainTexture; // Gestionnaire de la texture du terrain
-GLuint grassTexture; // Gestionnaire de la texture d'herbe
+GLuint foliageTexture; // Gestionnaire de la texture de végétation
 // Liens relatifs vers les textures
 const char* terrainTexFilepath = "./texture/terrain.jpg";
-const char* grassTexFilepath = "./texture/grass.png";
+const char* foliageTexFilepath = "./texture/grass_atlas.png";
 
 void createTerrain()
 {
-  // Définition de la longueur et de la hauteur du plan
-  const GLfloat width = 8.0f;
-  const GLfloat height = 8.0f;
   // Remplissage des coordonnées des sommets du plan
   for(int i = 0; i < PLAN_R; i++)
   {
@@ -185,9 +207,9 @@ void createTerrain()
     {
       int index = (i * PLAN_r + j) * 8;
       // Coordonnées des sommets
-      sommets_terrain[index] = (j * width / (PLAN_r - 1)) - (width / 2);
+      sommets_terrain[index] = (j * TERRAIN_WIDTH / (PLAN_r - 1)) - (TERRAIN_WIDTH / 2);
       sommets_terrain[index+1] = 0.0f;
-      sommets_terrain[index+2] = (i * height / (PLAN_R - 1)) - (height / 2);
+      sommets_terrain[index+2] = (i * TERRAIN_HEIGHT / (PLAN_R - 1)) - (TERRAIN_HEIGHT / 2);
       // Normales
       sommets_terrain[index+3] = 0.0f;
       sommets_terrain[index+4] = 1.0f;
@@ -215,62 +237,60 @@ void createTerrain()
 
 void createFoliageSupport()
 {
-  // Définition du rayon de chaque plan
-  float radius = 0.4f;
-  for(int i = 0; i < PLANE_SUPPORT; i++){
+  for(int i = 0; i < FOLIAGE_PLANE_NUMBER; i++){
     // Calcul de l'angle du plan dans l'espace
     GLfloat angle = i * PI / 3.0f;
     // Génération des points
     // Coordonnées de positions du premier point
-    sommets_support[i*4*8] = radius * cos(angle);
-    sommets_support[i*4*8 + 1] = 2*radius;
-    sommets_support[i*4*8 + 2] = radius * sin(angle);
+    sommets_support[i*4*6] = SUPPORT_RADIUS * cos(angle);
+    sommets_support[i*4*6 + 1] = 2*SUPPORT_RADIUS;
+    sommets_support[i*4*6 + 2] = SUPPORT_RADIUS * sin(angle);
 
     // Coordonnées de normales du premier point
-    sommets_support[i*4*8 + 3] = cos(angle);
-    sommets_support[i*4*8 + 4] = 0.0f;
-    sommets_support[i*4*8 + 5] = sin(angle);
+    sommets_support[i*4*6 + 3] = cos(angle);
+    sommets_support[i*4*6 + 4] = 0.0f;
+    sommets_support[i*4*6 + 5] = sin(angle);
 
     // Coordonnées de texture du premier point
-    sommets_support[i*4*8 + 6] = 0.0f;
-    sommets_support[i*4*8 + 7] = 0.0f;
+    //sommets_support[i*4*8 + 6] = 0.0f;
+    //sommets_support[i*4*8 + 7] = 0.0f;
 
     // Nous faisons de même pour les 3 autres points du plan
     // deuxième point
-    sommets_support[i*4*8 + 8] = - radius * cos(angle);
-    sommets_support[i*4*8 + 9] = 2*radius;
-    sommets_support[i*4*8 + 10] = - radius * sin(angle);
+    sommets_support[i*4*6 + 6] = - SUPPORT_RADIUS * cos(angle);
+    sommets_support[i*4*6 + 7] = 2*SUPPORT_RADIUS;
+    sommets_support[i*4*6 + 8] = - SUPPORT_RADIUS * sin(angle);
 
-    sommets_support[i*4*8 + 11] = -cos(angle);
-    sommets_support[i*4*8 + 12] = 0.0f;
-    sommets_support[i*4*8 + 13] = -sin(angle);
+    sommets_support[i*4*6 + 9] = -cos(angle);
+    sommets_support[i*4*6 + 10] = 0.0f;
+    sommets_support[i*4*6 + 11] = -sin(angle);
 
-    sommets_support[i*4*8 + 14] = 1.0f;
-    sommets_support[i*4*8 + 15] = 0.0f;
+    //sommets_support[i*4*8 + 14] = 1.0f;
+    //sommets_support[i*4*8 + 15] = 0.0f;
 
     // troisième point
-    sommets_support[i*4*8 + 16] = -radius * cos(angle);
-    sommets_support[i*4*8 + 17] = 0.0f;
-    sommets_support[i*4*8 + 18] = -radius * sin(angle);
+    sommets_support[i*4*6 + 12] = -SUPPORT_RADIUS * cos(angle);
+    sommets_support[i*4*6 + 13] = 0.0f;
+    sommets_support[i*4*6 + 14] = -SUPPORT_RADIUS * sin(angle);
 
-    sommets_support[i*4*8 + 19] = -cos(angle);
-    sommets_support[i*4*8 + 20] = 0.0f;
-    sommets_support[i*4*8 + 21] = -sin(angle);
+    sommets_support[i*4*6 + 15] = -cos(angle);
+    sommets_support[i*4*6 + 16] = 0.0f;
+    sommets_support[i*4*6 + 17] = -sin(angle);
 
-    sommets_support[i*4*8 + 22] = 1.0f;
-    sommets_support[i*4*8 + 23] = 1.0f;
+    //sommets_support[i*4*8 + 22] = 1.0f;
+    //sommets_support[i*4*8 + 23] = 1.0f;
 
     // quatrième point
-    sommets_support[i*4*8 +24] = radius * cos(angle);
-    sommets_support[i*4*8 + 25] = 0.0f;
-    sommets_support[i*4*8 + 26] = radius * sin(angle);
+    sommets_support[i*4*6 + 18] = SUPPORT_RADIUS * cos(angle);
+    sommets_support[i*4*6 + 19] = 0.0f;
+    sommets_support[i*4*6 + 20] = SUPPORT_RADIUS * sin(angle);
 
-    sommets_support[i*4*8 + 27] = cos(angle);
-    sommets_support[i*4*8 + 28] = 0.0f;
-    sommets_support[i*4*8 + 29] = sin(angle);
+    sommets_support[i*4*6 + 21] = cos(angle);
+    sommets_support[i*4*6 + 22] = 0.0f;
+    sommets_support[i*4*6 + 23] = sin(angle);
 
-    sommets_support[i*4*8 + 30] = 0.0f;
-    sommets_support[i*4*8 + 31] = 1.0f;
+    //sommets_support[i*4*8 + 30] = 0.0f;
+    //sommets_support[i*4*8 + 31] = 1.0f;
 
     // Remplissage du tableau des indices pour ce plan
     indices_support[i*6] = i*4;
@@ -315,6 +335,69 @@ void initTexture(const char* filepath, GLuint* handler, bool hasTransparency)
   stbi_image_free(image);
 }
 
+void initFoliageUVCoordinates(void){
+  // Comme nous utilisons une image stockant un atlas de textures de végétation, nous devons
+  // générer les coordonnées uv des instances de végétation en fonction de l'atlas.
+  // Ce dernier est composé de 8 textures représentées sur 2 lignes et 4 colonnes (nous supposons qu'elles ont toutes la même dimension)
+  for(int i = 0; i < ATLAS_ROW; i++)
+  {
+    for(int j = 0; j < ATLAS_COLUMN; j++)
+    {
+      for(int k = 0; k < FOLIAGE_PLANE_NUMBER; k++)
+      {
+        foliage_uv_coordinates[i*8*ATLAS_COLUMN*FOLIAGE_PLANE_NUMBER + k*8 + j*8*FOLIAGE_PLANE_NUMBER] = (GLfloat)(j*ATLAS_WIDTH) / (GLfloat)(ATLAS_COLUMN*ATLAS_WIDTH); // Coordonnée point haut gauche
+        foliage_uv_coordinates[i*8*ATLAS_COLUMN*FOLIAGE_PLANE_NUMBER + k*8 + 1 + j*8*FOLIAGE_PLANE_NUMBER] =  (GLfloat)(i*ATLAS_HEIGHT) / (GLfloat)(ATLAS_ROW*ATLAS_HEIGHT);// Coordonnée point haut gauche
+        foliage_uv_coordinates[i*8*ATLAS_COLUMN*FOLIAGE_PLANE_NUMBER + k*8 + 2 + j*8*FOLIAGE_PLANE_NUMBER] = (GLfloat)((j+1)*ATLAS_WIDTH) / (GLfloat)(ATLAS_COLUMN*ATLAS_WIDTH); // Coordonnée point haut droite
+        foliage_uv_coordinates[i*8*ATLAS_COLUMN*FOLIAGE_PLANE_NUMBER + k*8 + 3 + j*8*FOLIAGE_PLANE_NUMBER] = (GLfloat)(i*ATLAS_HEIGHT) / (GLfloat)(ATLAS_ROW*ATLAS_HEIGHT); // Coordonnée point haut droite
+        foliage_uv_coordinates[i*8*ATLAS_COLUMN*FOLIAGE_PLANE_NUMBER + k*8 + 4 + j*8*FOLIAGE_PLANE_NUMBER] = (GLfloat)((j+1)*ATLAS_WIDTH) / (GLfloat)(ATLAS_COLUMN*ATLAS_WIDTH); // Coordonnée point bas droite
+        foliage_uv_coordinates[i*8*ATLAS_COLUMN*FOLIAGE_PLANE_NUMBER + k*8 + 5 + j*8*FOLIAGE_PLANE_NUMBER] = (GLfloat)((i+1)*ATLAS_HEIGHT) / (GLfloat)(ATLAS_ROW*ATLAS_HEIGHT); // Coordonnée point bas droite
+        foliage_uv_coordinates[i*8*ATLAS_COLUMN*FOLIAGE_PLANE_NUMBER + k*8 + 6 + j*8*FOLIAGE_PLANE_NUMBER] = (GLfloat)(j*ATLAS_WIDTH) / (GLfloat)(ATLAS_COLUMN*ATLAS_WIDTH); // Coordonnée point bas gauche
+        foliage_uv_coordinates[i*8*ATLAS_COLUMN*FOLIAGE_PLANE_NUMBER + k*8 + 7 + j*8*FOLIAGE_PLANE_NUMBER] = (GLfloat)((i+1)*ATLAS_HEIGHT) / (GLfloat)(ATLAS_ROW*ATLAS_HEIGHT); // Coordonnée point bas gauche    
+      }
+    }
+  }
+}
+
+void initFoliageTranslations(void){
+  // Définition des limites de positions pour la génération des instances
+  float minPositionX = -TERRAIN_WIDTH / 2 + SUPPORT_MAX_RADIUS;
+  float maxPositionX = TERRAIN_WIDTH / 2 - SUPPORT_MAX_RADIUS;
+  float minPositionZ = -TERRAIN_HEIGHT / 2 + SUPPORT_MAX_RADIUS;
+  float maxPositionZ = TERRAIN_HEIGHT / 2 - SUPPORT_MAX_RADIUS; 
+  // Génération aléatoire des positions
+  // Création de la méthode de génération des positions en X de la végétation (suivant une distribution normale)
+  std::uniform_real_distribution<float> positionX(minPositionX, maxPositionX);
+  // De même pour la position en Z
+  std::uniform_real_distribution<float> positionZ(minPositionZ, maxPositionZ);
+
+  // Remplissage du tableau des positions des instances
+  for(int i = 0; i < FOLIAGE_INSTANCES; i++)
+  {
+    foliage_transformations[i] = glm::translate(glm::mat4(1.0f), glm::vec3(positionX(engine), 0.0f, positionZ(engine)));
+  }
+}
+
+void initFoliageScales(void){
+  // Création de la méthode de génération des échelles de la végétation (suivant une distribution normale)
+  std::uniform_real_distribution<float> scale(SUPPORT_MIN_RADIUS, SUPPORT_MAX_RADIUS);
+  for(int i = 0; i < FOLIAGE_INSTANCES; i++){
+    float random_scale = scale(engine);
+    foliage_transformations[i] = glm::scale(foliage_transformations[i], glm::vec3(random_scale, random_scale, random_scale));
+  }
+}
+
+void initFoliageRotations(void){
+  // Création de la méthode de génération de valeur d'angle aléatoire comprise entre 0 et Pi/3 
+  std::uniform_real_distribution<float> rotation(0.0f, PI/3);
+  for(int i = 0; i < FOLIAGE_INSTANCES; i++)
+  {
+    //tirage d'une valeur d'angle aléatoire comprise entre 0 et PI/3
+    float angle = rotation(engine);
+    //Création de la matrice de rotation adéquate
+    foliage_transformations[i] = glm::rotate(foliage_transformations[i], angle, glm::vec3(0.0,1.0,0.0));
+  }
+}
+
 // Récupération des emplacements des variables uniformes pour l'affichage du terrain
 void getUniformLocationTerrain(TerrainIDs& terrain){
   //Chargement des vertex et fragment shaders pour l'affichage du tarrin
@@ -341,7 +424,7 @@ void getUniformLocationTerrain(TerrainIDs& terrain){
 // Récupération des emplacements des variables uniformes pour l'affichage de la végétation
 void getUniformLocationFoliage(FoliageIDs& foliage){
   //Chargement des vertex et fragment shaders pour l'affichage de la végétation
-  foliage.programID = LoadShaders("TerrainShader.vert", "TerrainShader.frag");
+  foliage.programID = LoadShaders("FoliageShader.vert", "TerrainShader.frag");
  
   // Récupération des emplacements des matrices modèle, vue et projection dans les shaders
   foliage.MatrixIDView = glGetUniformLocation(foliage.programID, "VIEW");
@@ -359,6 +442,7 @@ void getUniformLocationFoliage(FoliageIDs& foliage){
   foliage.locMaterialShininess = glGetUniformLocation(foliage.programID, "material.shininess");
   foliage.locMaterialSpecular = glGetUniformLocation(foliage.programID, "material.specular");
   foliage.locFoliageTexture = glGetUniformLocation(foliage.programID, "terrainTexture");
+  foliage.locFoliageTransformation = glGetUniformLocation(foliage.programID, "transformations");
 }
 
 //----------------------------------------
@@ -414,10 +498,19 @@ std::cout << "***** Info GPU *****" << std::endl;
   createTerrain();
   // Remplissage des tableaux de données du support pour la végétation
   createFoliageSupport();
+  // Génération de la position aléatoire de la végétation
+  initFoliageTranslations(); 
+  // Et la rotation de ces derniers
+  initFoliageRotations();
+  // Tout comme la mise à l'échelle des plans
+  initFoliageScales();
 
   //Initialisation des textures utilisées dans le programme
   initTexture(terrainTexFilepath, &terrainTexture, false);
-  initTexture(grassTexFilepath, &grassTexture, true);
+  initTexture(foliageTexFilepath, &foliageTexture, true);
+
+  // Initialisation des coordonnées UV de la végétation en fonction de l'atlas de texture
+  initFoliageUVCoordinates();
 
   // construction des VBO à partir des tableaux du plan
   genereVBOTerrain();
@@ -482,16 +575,26 @@ void genereVBOFoliageSupport(){
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VBO_indices_vegetation);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices_support),indices_support , GL_STATIC_DRAW);
 
+  if(glIsBuffer(VBO_uv_coordinates) == GL_TRUE) glDeleteBuffers(1, &VBO_uv_coordinates);
+  glGenBuffers(1, &VBO_uv_coordinates);
+  glBindBuffer(GL_ARRAY_BUFFER, VBO_uv_coordinates);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(foliage_uv_coordinates),foliage_uv_coordinates , GL_STATIC_DRAW);
+
   glGenVertexArrays(1, &VAO_vegetation);
   glBindVertexArray(VAO_vegetation); // ici on bind le VAO , c'est lui qui recupèrera les configurations des VBO glVertexAttribPointer , glEnableVertexAttribArray...
-  glEnableVertexAttribArray(indexVertex);
-  glEnableVertexAttribArray(indexNormale);
-  glEnableVertexAttribArray(indexUVTexture);
+  glEnableVertexAttribArray(indexVertex); // location = 0
+  glEnableVertexAttribArray(indexNormale); // location = 2
+  glEnableVertexAttribArray(indexUVTexture); // location = 3
+
 
   glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets_vegetation);
-  glVertexAttribPointer (indexVertex, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (void*)0);
-  glVertexAttribPointer (indexNormale, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (void*)(3 * sizeof(GLfloat)));
-  glVertexAttribPointer (indexUVTexture, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat),  (void*)(6 * sizeof(GLfloat)));
+  glVertexAttribPointer (indexVertex, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (void*)0);
+  glVertexAttribPointer (indexNormale, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (void*)(3 * sizeof(GLfloat)));
+
+  glBindBuffer(GL_ARRAY_BUFFER, VBO_uv_coordinates);
+  glVertexAttribPointer(indexUVTexture, 2, GL_FLOAT, GL_FALSE, 0, (void*)0);
+  // Demande de changer la valeur de translation toutes les nouvelles instances
+  glVertexAttribDivisor(indexUVTexture, 0);
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VBO_indices_vegetation);
  
@@ -513,6 +616,7 @@ void deleteVBOFoliageSupport()
 {
   glDeleteBuffers(1, &VBO_sommets_vegetation);
   glDeleteBuffers(1, &VBO_indices_vegetation);
+  glDeleteBuffers(1, &VBO_uv_coordinates);
   glDeleteBuffers(1, &VAO_vegetation);
 }
 
@@ -580,6 +684,7 @@ void setFoliageUniformValues(FoliageIDs& foliage){
   glUniform1f(foliage.locMaterialShininess, materialShininess);
   glUniform3f(foliage.locMaterialSpecular, materialSpecularColor.r,materialSpecularColor.g,materialSpecularColor.b);
   glUniform1f(foliage.locSpecularCoefficient, Ks);
+  glUniformMatrix4fv(foliage.locFoliageTransformation, FOLIAGE_INSTANCES, GL_FALSE, glm::value_ptr(foliage_transformations[0]));
 }
 
 void traceTerrain()
@@ -592,8 +697,9 @@ void traceTerrain()
 void traceFoliageSupport()
 {
   glBindVertexArray(VAO_vegetation); // on active le VAO
-  glDrawElements(GL_TRIANGLES,  sizeof(indices_support), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	glBindVertexArray(0);    // on desactive les VAO
+  glDrawElementsInstanced(GL_TRIANGLES, sizeof(indices_support) / sizeof(GLuint), GL_UNSIGNED_INT, 0, FOLIAGE_INSTANCES);// on appelle la fonction dessin 
+  //glDrawArraysInstanced(GL_TRIANGLES, 0, sizeof(sommets_support) / (6 * sizeof(GLfloat)), FOLIAGE_INSTANCES);
+  glBindVertexArray(0);    // on desactive les VAO
 }
 
 //-------------------------------------
@@ -623,7 +729,7 @@ void traceObjet()
   // Activation d'une autre unité de texture pour la texture de la végétation
   glActiveTexture(GL_TEXTURE1);
   // Utilisation de la texture de végétation
-  glBindTexture(GL_TEXTURE_2D, grassTexture);
+  glBindTexture(GL_TEXTURE_2D, foliageTexture);
   // Affectation de la texture à la variable uniforme correspondante
   glUniform1i(foliageIds.locFoliageTexture, 1);
   // Affichage de la végétation
