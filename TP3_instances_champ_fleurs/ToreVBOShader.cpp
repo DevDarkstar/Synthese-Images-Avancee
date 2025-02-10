@@ -27,7 +27,6 @@
 // Include GLM
 #include "../glm/glm.hpp"
 #include "../glm/gtc/matrix_transform.hpp"
-#include "../glm/gtc/type_ptr.hpp"
 
 using namespace glm;
 using namespace std;
@@ -40,15 +39,14 @@ using namespace std;
 #define N_VERTS_BY_FACE  3
 #define N_FACES  12
 
-#define PLAN_R 5
-#define PLAN_r 5
+#define PLAN_R 5 // Nombre de subdivisions en x du terrain
+#define PLAN_r 5 // Nombre de subdivisions en z du terrain
 #define TERRAIN_WIDTH 16.0 // Longueur du terrain
 #define TERRAIN_HEIGHT 16.0 // Largeur du terrain
-#define TEXTURE_NUMBER 8
-#define ATLAS_WIDTH 512 // Largeur de l'atlas de texture
-#define ATLAS_HEIGHT 256 // hauteur de l'atlas de texture
-#define ATLAS_ROW 2 // nombre de textures par ligne de l'atlas
-#define ATLAS_COLUMN 4 // nombre de textures par colonne de l'atlas
+#define ATLAS_WIDTH 512 // Largeur de l'atlas de texture (en pixels)
+#define ATLAS_HEIGHT 256 // hauteur de l'atlas de texture (en pixels)
+#define ATLAS_ROW 2 // nombre de lignes de l'atlas
+#define ATLAS_COLUMN 4 // nombre de colonnes de l'atlas
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
@@ -68,17 +66,15 @@ GLfloat sommets_terrain[(PLAN_R+1)*(PLAN_r+1)*8];
 GLuint indices_terrain[(PLAN_R)*(PLAN_r)*6];
 
 // Définition des tableaux de données pour les supports floraux
-// Chaque support est consitué de 3 plans, soient 12 points et chaque point est constitué de 3 coordonnées de position,
+// Chaque support est consitué de FOLIAGE_PLANE_NUMBER plans, soient 4 * FOLIAGE_PLANE_NUMBER points et chaque point est constitué de 3 coordonnées de position,
 // 3 coordonnées de normales et 2 coordonnées de texture, soit un total de 12 * (3 + 3 + 2) = 96 valeurs
-GLfloat sommets_support[96];
-// Pour le tableau d'indices, nous avons 3 plans pour représenter un support. Chaque plan peut se diviser en 2 triangles
-// et nous avons besoin de 3 indices pour tracer un triangle. Par conséquent, le nombre total de données est de 3 plans * 2 triangles * 3 indices = 18 valeurs
-GLuint indices_support[18];
+GLfloat sommets_support[4*FOLIAGE_PLANE_NUMBER*8];
+// Pour le tableau d'indices, nous avons FOLIAGE_PLANE_NUMBER plans pour représenter un support. Chaque plan peut se diviser en 2 triangles
+// et nous avons besoin de 3 indices pour tracer un triangle. Par conséquent, le nombre total de données est de FOLIAGE_PLANE_NUMBER plans * 2 triangles * 3 indices = 18 valeurs
+GLuint indices_support[FOLIAGE_PLANE_NUMBER*6];
 // Création d'un tableau de transformations aléatoires pour les instances de végétations
 glm::mat4 foliage_transformations[FOLIAGE_INSTANCES];
-// Création d'un tableau contenant les coordonnées UV permettant d'afficher une des 8 textures présentes dans
-// l'atlas sur un plant (il y a 8 textures, chaque plant est composé de 12 sommets, et nous avons de 2 coordonnées UV pour localiser la position de la texture) 
-GLfloat foliage_uv_coordinates[12*2*TEXTURE_NUMBER];
+// Création d'un tableau permettant de stocker un indice aléatoire de texture de l'atlas de végétation pour chaque instance de plants de la scène
 GLfloat foliage_texture_index[FOLIAGE_INSTANCES];
 
 // initialisations
@@ -160,7 +156,7 @@ GLuint indexVertex=0, indexUVTexture=2, indexNormale=3, indexTexture=4;
 
 //variable pour paramétrage eclairage
 //--------------------------------------
-vec3 cameraPosition(0.,1.,5.); // Position de la caméra
+vec3 cameraPosition(0.,3.,7.); // Position de la caméra
 // le matériau
 //---------------
 GLfloat materialShininess=2.; // Brillance de l'objet
@@ -243,7 +239,7 @@ void createFoliageSupport()
 {
   for(int i = 0; i < FOLIAGE_PLANE_NUMBER; i++){
     // Calcul de l'angle du plan dans l'espace
-    GLfloat angle = i * PI / 3.0f;
+    GLfloat angle = i * PI / (GLfloat)FOLIAGE_PLANE_NUMBER;
     // Génération des points
     // Coordonnées de positions du premier point
     sommets_support[i*4*8] = SUPPORT_RADIUS * cos(angle);
@@ -361,6 +357,7 @@ void initTextureRGBA(const char* filepath, GLuint* handler)
 
 void initAtlasTextureRGB(const char* filepath, GLuint* handler)
 {
+  // Création d'un tableau permettant de contenir séparément l'ensemble des données de chaque texture de l'atlas
   unsigned char atlas_data_rgb[ATLAS_ROW * ATLAS_COLUMN][(ATLAS_WIDTH / ATLAS_COLUMN) * (ATLAS_HEIGHT / ATLAS_ROW)* 3];
   int iwidth,iheight,nrChannels;
   //GLubyte *  image = NULL;
@@ -397,9 +394,9 @@ void initAtlasTextureRGB(const char* filepath, GLuint* handler)
 
         // Extraction des données de la texture de l'atlas
         unsigned char* current_texture = NULL;
-        // Récupération de la position du début de la k-ème ligne de la (i*ATLAS_ROW + j)-ème texture
+        // Récupération de la position du début de la k-ème ligne de la (i*ATLAS_COLUMN + j)-ème texture
         current_texture = image + (offsetRow*ATLAS_WIDTH + offsetColumn + k*ATLAS_WIDTH) * 3;
-        // Ajout de la ligne dans le tableau de la (i*ATLAS_ROW + j)-ème texture
+        // Ajout de la ligne dans le tableau de la (i*ATLAS_COLUMN + j)-ème texture
         memcpy(&atlas_data_rgb[i*ATLAS_COLUMN + j][k*texture_height*3], current_texture, texture_width * 3 * sizeof(unsigned char));
       }
     }
@@ -418,6 +415,7 @@ void initAtlasTextureRGB(const char* filepath, GLuint* handler)
 
 void initAtlasTextureRGBA(const char* filepath, GLuint* handler)
 {
+  // Création d'un tableau permettant de contenir séparément l'ensemble des données de chaque texture de l'atlas
   unsigned char atlas_data_rgba[ATLAS_ROW * ATLAS_COLUMN][(ATLAS_WIDTH / ATLAS_COLUMN) * (ATLAS_HEIGHT / ATLAS_ROW)* 4];
   int iwidth,iheight,nrChannels;
   //GLubyte *  image = NULL;
@@ -455,9 +453,9 @@ void initAtlasTextureRGBA(const char* filepath, GLuint* handler)
         // Extraction des données de la texture de l'atlas
         unsigned char* current_texture = NULL;
         //std::cout << "texture " << i*ATLAS_COLUMN + j << ", ligne " << k << std::endl;
-        // Récupération de la position du début de la k-ème ligne de la (i*ATLAS_ROW + j)-ème texture
+        // Récupération de la position du début de la k-ème ligne de la (i*COLUMN_ROW + j)-ème texture
         current_texture = image + (offsetRow*ATLAS_WIDTH + offsetColumn + k*ATLAS_WIDTH) * 4;
-        // Ajout de la ligne dans le tableau de la (i*ATLAS_ROW + j)-ème texture
+        // Ajout de la ligne dans le tableau de la (i*COLUMN_ROW + j)-ème texture
         memcpy(&atlas_data_rgba[i*ATLAS_COLUMN + j][k*texture_height*4], current_texture, texture_width * 4 * sizeof(unsigned char));
       }
     }
@@ -475,18 +473,18 @@ void initAtlasTextureRGBA(const char* filepath, GLuint* handler)
 }
 
 void initFoliageTranslations(void){
-  // Définition des limites de positions pour la génération des instances
+  // Définition des limites de translations pour la génération des instances
   float minPositionX = -TERRAIN_WIDTH / 2 + SUPPORT_MAX_RADIUS;
   float maxPositionX = TERRAIN_WIDTH / 2 - SUPPORT_MAX_RADIUS;
   float minPositionZ = -TERRAIN_HEIGHT / 2 + SUPPORT_MAX_RADIUS;
   float maxPositionZ = TERRAIN_HEIGHT / 2 - SUPPORT_MAX_RADIUS; 
-  // Génération aléatoire des positions
-  // Création de la méthode de génération des positions en X de la végétation (suivant une distribution normale)
+  // Génération aléatoire des translations
+  // Création de la méthode de génération des translations en X de la végétation (suivant une distribution normale)
   std::uniform_real_distribution<float> positionX(minPositionX, maxPositionX);
   // De même pour la position en Z
   std::uniform_real_distribution<float> positionZ(minPositionZ, maxPositionZ);
 
-  // Remplissage du tableau des positions des instances
+  // Remplissage du tableau des translations des instances
   for(int i = 0; i < FOLIAGE_INSTANCES; i++)
   {
     foliage_transformations[i] = glm::translate(glm::mat4(1.0f), glm::vec3(positionX(engine), 0.0f, positionZ(engine)));
@@ -504,7 +502,7 @@ void initFoliageScales(void){
 
 void initFoliageRotations(void){
   // Création de la méthode de génération de valeur d'angle aléatoire comprise entre 0 et Pi/3 
-  std::uniform_real_distribution<float> rotation(0.0f, PI/3);
+  std::uniform_real_distribution<float> rotation(0.0f, PI/FOLIAGE_PLANE_NUMBER);
   for(int i = 0; i < FOLIAGE_INSTANCES; i++)
   {
     //tirage d'une valeur d'angle aléatoire comprise entre 0 et PI/3
@@ -600,7 +598,7 @@ int main(int argc,char **argv)
   glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE|GLUT_RGB);
   glutInitWindowPosition(200,200);
   glutInitWindowSize(screenWidth,screenHeight);
-  glutCreateWindow("TP INSTANCES");
+  glutCreateWindow("TP INSTANCES CHAMP FLEURS");
 
 
 // Initialize GLEW
@@ -655,6 +653,7 @@ int main(int argc,char **argv)
 
   // Suppression des shader programs
   glDeleteProgram(terrainIds.programID);
+  glDeleteProgram(foliageIds.programID);
   // Ainsi que des VBO et SSBO utilisés dans le programme
   deleteVBOTerrain();
   deleteVBOFoliageSupport();
