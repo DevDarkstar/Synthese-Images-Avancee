@@ -96,6 +96,7 @@ void genereSSBOAsteroidTransformations();
 void deleteVBOPlanete(PlanetElements*);
 void deleteVBOAsteroide(AsteroidElements*);
 void deleteSSBOAsteroid(void);
+void deleteTextures(void);
 void traceObjet(void);
 
 // fonctions de rappel de glut
@@ -516,6 +517,7 @@ int main(int argc,char **argv)
   deleteVBOPlanete(&planetData);
   deleteVBOAsteroide(&asteroidData);
   deleteSSBOAsteroid();
+  deleteTextures();
   return 0;
 }
 
@@ -642,6 +644,12 @@ void deleteVBOAsteroide(AsteroidElements* data)
 void deleteSSBOAsteroid(void)
 {
   glDeleteBuffers(1, &SSBO_asteroid_transformations);
+}
+
+void deleteTextures(void)
+{
+  glDeleteTextures(1, &planetTexture);
+  glDeleteTextures(1, &asteroidTexture);
 }
 
 /* fonction d'affichage */

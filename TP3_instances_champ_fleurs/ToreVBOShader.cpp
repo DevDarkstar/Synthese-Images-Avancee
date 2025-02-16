@@ -85,6 +85,7 @@ void deleteVBOTerrain();
 void deleteVBOFoliageSupport();
 void deleteSSBOFoliageSupport();
 void traceObjet();
+void deleteTextures();
 
 // fonctions de rappel de glut
 void affichage();
@@ -658,6 +659,7 @@ int main(int argc,char **argv)
   deleteVBOTerrain();
   deleteVBOFoliageSupport();
   deleteSSBOFoliageSupport();
+  deleteTextures();
   return 0;
 }
 
@@ -766,6 +768,12 @@ void deleteVBOFoliageSupport()
 void deleteSSBOFoliageSupport(void)
 {
   glDeleteBuffers(1, &SSBO_foliage_transformations);
+}
+
+void deleteTextures()
+{
+  glDeleteTextures(1, &terrainTexture);
+  glDeleteTextures(1, &foliageTexture);
 }
 
 /* fonction d'affichage */

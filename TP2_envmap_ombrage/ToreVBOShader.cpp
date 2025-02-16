@@ -64,6 +64,8 @@ void genereVBOTore();
 void deleteVBOTore();
 void genereVBOPlan();
 void deleteVBOPlan();
+void deleteTextures();
+void deleteFramebuffer();
 void traceObjet();
 void traceShadowEffect();
 
@@ -570,6 +572,8 @@ std::cout << "***** Info GPU *****" << std::endl;
   glDeleteProgram(phongIds.programID);
   deleteVBOTore();
   deleteVBOPlan();
+  deleteTextures();
+  deleteFramebuffer();
   return 0;
 }
 
@@ -664,6 +668,18 @@ void deleteVBOPlan()
   glDeleteBuffers(1, &VBO_sommets_plan);
   glDeleteBuffers(1, &VBO_indices_plan);
   glDeleteBuffers(1, &VAO_plan);
+}
+
+void deleteTextures(void)
+{
+  glDeleteTextures(1, &texture);
+  glDeleteTextures(1, &skyboxTexture);
+}
+
+void deleteFramebuffer(void)
+{
+  glDeleteTextures(1, &depthMapBuffer);
+  glDeleteFramebuffers(1, &depthMapFBO);
 }
 
 /* fonction d'affichage */
