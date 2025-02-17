@@ -13,6 +13,7 @@ out GS_OUT{
 }gs_out;
 
 uniform mat4 PERSPECTIVE;
+uniform float normalSize;
 
 void main()
 {
@@ -22,7 +23,7 @@ void main()
     // On crée le sommet
     EmitVertex();
     // Le second point correspond à la position du point initial + la direction de la normale au sommet (normalisée)
-    gl_Position = PERSPECTIVE * (gl_in[0].gl_Position + vec4(gs_in[0].Normal, 0.0));
+    gl_Position = PERSPECTIVE * (gl_in[0].gl_Position + normalSize*vec4(gs_in[0].Normal, 0.0));
     gs_out.color = gs_in[0].color;
     // On crée le sommet
     EmitVertex();

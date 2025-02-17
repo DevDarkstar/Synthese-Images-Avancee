@@ -78,6 +78,7 @@ struct NormalIDs{
   GLuint programID; // Gestionnaire du "shader program"
   GLuint MatrixIDView,MatrixIDModel,MatrixIDPerspective; // Matrices modèle, vue et projection
   GLuint locColor; // Couleur des normales à l'affichage
+  GLuint locNormalSize; // Longueur des normales
 };
 
 struct ToonIDs{
@@ -113,6 +114,7 @@ vec3 materialDiffuseColor(0.,1.,1.); // couleur de la lumière diffuse (cyan)
 //-----------
 vec3 lightPosition(1.,0.,.5); // Position de la lumière dans la scène
 GLfloat Kd = .9; // Coefficient de la lumière diffuse
+float normalSize = 0.1f; // Longueur des normales aux sommets
 
 glm::mat4 MVP;      // justement la voilà
 glm::mat4 Model, View, Projection;    // Matrices constituant MVP
@@ -122,11 +124,6 @@ glm::mat4 Model, View, Projection;    // Matrices constituant MVP
 int screenHeight = 500;
 int screenWidth = 500;
 
-// pour la texcture
-//-------------------
-GLuint image ;
-GLuint bufShadowTexture,bufNormalMap;
-GLuint locationTexture,locationNormalMap;
 //-------------------------
 void createTorus(float R, float r )
 {
@@ -170,7 +167,7 @@ void createTorus(float R, float r )
 }
 
 // Récupération des emplacements des variables uniformes pour le shader d'affichage des normales
-void getUniformLocationNormal(NormalIDs normale)
+void getUniformLocationNormal(NormalIDs& normale)
 {
   //Création du shader gérant l'affichage des normales
   normale.programID = LoadShadersWithGeom("GeometryShader.vert", "GeometryShader.geom", "GeometryShader.frag");
@@ -178,6 +175,7 @@ void getUniformLocationNormal(NormalIDs normale)
   normale.MatrixIDView = glGetUniformLocation(normale.programID, "VIEW");
   normale.MatrixIDPerspective = glGetUniformLocation(normale.programID, "PERSPECTIVE");
   normale.locColor = glGetUniformLocation(normale.programID, "color");
+  normale.locNormalSize = glGetUniformLocation(normale.programID, "normalSize");
 }
 
 // Récupération des emplacements des variables uniformes pour le shader Toon
@@ -207,10 +205,10 @@ void initOpenGL(void)
   glEnable(GL_CULL_FACE); // on active l'élimination des faces qui par défaut n'est pas active
   glEnable(GL_DEPTH_TEST);
 
-  // Récupération des emplacements des variables uniformes pour le shader d'affichage des normales
-  getUniformLocationNormal(normalIds);
   // Récupération des emplacements des variables uniformes pour le shader Toon
   getUniformLocationToon(toonIds);
+  // Récupération des emplacements des variables uniformes pour le shader d'affichage des normales
+  getUniformLocationNormal(normalIds);
 
   // Projection matrix : 65 Field of View, 1:1 ratio, display range : 1 unit <-> 1000 units
   // ATTENTIOn l'angle est donné en radians si f GLM_FORCE_RADIANS est défini sinon en degré
@@ -229,7 +227,7 @@ int main(int argc,char **argv)
   glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE|GLUT_RGB);
   glutInitWindowPosition(200,200);
   glutInitWindowSize(screenWidth,screenHeight);
-  glutCreateWindow("CUBE VBO SHADER ");
+  glutCreateWindow("GEOMETRY SHADER - NORMAL DISPLAY");
 
 
   // Initialize GLEW
@@ -334,6 +332,7 @@ void setNormalUniformValues(NormalIDs& normale){
   glUniformMatrix4fv(normale.MatrixIDPerspective, 1, GL_FALSE, &Projection[0][0]);
 
   glUniform3f(normale.locColor, 1.0f, 1.0f, 0.0f);
+  glUniform1f(normale.locNormalSize, normalSize);
 }
 
 // Affectation de valeurs pour les variables uniformes du shader Toon
@@ -353,6 +352,14 @@ void setToonUniformValues(ToonIDs& toon){
 /* fonction d'affichage */
 void affichage()
 {
+  /* effacement de l'image avec la couleur de fond */
+  /* Initialisation d'OpenGL */
+  glClearColor(0.0,0.0,0.0,0.0);
+  glClearDepth(10.0f);                         // 0 is near, >0 is far
+
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glColor3f(1.0,1.0,1.0);
+  glPointSize(2.0);
   View       = glm::lookAt(   cameraPosition, // Camera is at (0,0,3), in World Space
                                             glm::vec3(0,0,0), // and looks at the origin
                                             glm::vec3(0,1,0)  // Head is up (set to 0,-1,0 to look upside-down)
@@ -363,14 +370,6 @@ void affichage()
      Model = glm::rotate(Model,glm::radians(cameraAngleY),glm::vec3(0, 1, 0) );
      Model = glm::scale(Model,glm::vec3(.8, .8, .8));
      MVP = Projection * View * Model;
-  /* effacement de l'image avec la couleur de fond */
- /* Initialisation d'OpenGL */
-  glClearColor(0.0,0.0,0.0,0.0);
-  glClearDepth(10.0f);                         // 0 is near, >0 is far
-
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  glColor3f(1.0,1.0,1.0);
-  glPointSize(1.0);
 
   //Rendu général du tore et de l'affichage des normales
   traceNormalEffect();
@@ -403,11 +402,7 @@ void traceTore(void)
 
 void traceNormalEffect(void)
 {
-  // Première passe - création de l'aperçu visuel des normales du tore, sous la forme d'une texture, via un shader dédié qu sera stocké dans une texture via un framebuffer
-  // Utilisation du shader program dédié
-  // Nettoyage des buffers
-  //glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  // Deuxième passe - affichage à la fois des normales et du tore
+  // Première passe - rendu du Tore avec effet Toon
   // Utilisation du shader program dédié
   glUseProgram(toonIds.programID);
   setToonUniformValues(toonIds);
@@ -415,10 +410,11 @@ void traceNormalEffect(void)
   //Rendu du tore
 	traceTore();
   glUseProgram(0);
+  // Deuxième passe - rendu des normales
   // Utilisation du shader program dédié
   glUseProgram(normalIds.programID);
   setNormalUniformValues(normalIds);
-  // Rendu du tore
+  // Rendu des normales sur le tore
   traceNormales();
   // Désactivation du shader program
   glUseProgram(0);
@@ -484,6 +480,16 @@ void clavier(unsigned char touche,int x,int y)
       lightPosition.z+=.2;
       glutPostRedisplay();
       break;
+    case '+' : /*Augmentation de la longueur des normales*/
+      normalSize += 0.05f;
+      if (normalSize > 1.0f) normalSize = 1.0f;
+      glutPostRedisplay();
+      break;
+    case '-' : /*Diminution de la longueur des normales*/
+      normalSize -= 0.05f;
+      if (normalSize < 0.0f) normalSize = 0.0f;
+      glutPostRedisplay();
+      break; 
       
       
  case 'q' : /*la touche 'q' permet de quitter le programme */
