@@ -394,7 +394,7 @@ void initFoliageTranslations(void){
   float minPositionX = -TERRAIN_WIDTH / 2 + SUPPORT_MAX_RADIUS;
   float maxPositionX = TERRAIN_WIDTH / 2 - SUPPORT_MAX_RADIUS;
   float minPositionZ = -TERRAIN_HEIGHT / 2 + SUPPORT_MAX_RADIUS;
-  float maxPositionZ = TERRAIN_HEIGHT / 2 - SUPPORT_MAX_RADIUS; 
+  float maxPositionZ = TERRAIN_HEIGHT / 2 - SUPPORT_MAX_RADIUS;
   // Génération aléatoire des translations
   // Création de la méthode de génération des translations en X de la végétation (suivant une distribution normale)
   std::uniform_real_distribution<float> positionX(minPositionX, maxPositionX);

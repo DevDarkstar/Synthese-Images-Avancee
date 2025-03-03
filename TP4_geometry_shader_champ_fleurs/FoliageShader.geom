@@ -31,40 +31,42 @@ void main()
         float angle = i * PI / 3;
 
         // Création des données du premier point
-        float x0 = -0.5 * cos(angle);
-        float z0 = -0.5 * sin(angle);
-        gl_Position = PERSPECTIVE * VIEW * MODEL * transformations[vertexID] * vec4(x0, 0.0, z0, 1.0);
+        float x0 = -1.0 * cos(angle);
+        float z0 = -1.0 * sin(angle);
+        mat4 proj = PERSPECTIVE * VIEW * MODEL * transformations[vertexID];
+        mat3 normalMatrix = transpose(inverse(mat3(MODEL)));
+        gl_Position = proj * vec4(x0, 0.0, z0, 1.0);
         gs_out.fragPosition = vec3(MODEL * transformations[vertexID] * vec4(x0, 0.0, z0, 1.0));
-        gs_out.Normal = transpose(inverse(mat3(MODEL))) * vec3(-cos(angle), 0.0, -sin(angle));
+        gs_out.Normal = normalMatrix * vec3(-cos(angle), 0.0, -sin(angle));
         gs_out.UVCoords = vec2(0.0, 1.0);
         gs_out.TextureIndex = vertexID % texturesNumber;
         // Création du sommet
         EmitVertex();
 
         // Création des données du second point
-        float x1 = 0.5 * cos(angle);
-        float z1 = 0.5 * sin(angle);
-        gl_Position = PERSPECTIVE * VIEW * MODEL * transformations[vertexID] * vec4(x1, 0.0, z1, 1.0);
+        float x1 = 1.0 * cos(angle);
+        float z1 = 1.0 * sin(angle);
+        gl_Position = proj * vec4(x1, 0.0, z1, 1.0);
         gs_out.fragPosition = vec3(MODEL * transformations[vertexID] * vec4(x1, 0.0, z1, 1.0));
-        gs_out.Normal = transpose(inverse(mat3(MODEL))) * vec3(cos(angle), 0.0, sin(angle));
+        gs_out.Normal = normalMatrix * vec3(cos(angle), 0.0, sin(angle));
         gs_out.UVCoords = vec2(1.0, 1.0);
         gs_out.TextureIndex = vertexID % texturesNumber;
         // Création du sommet
         EmitVertex();
 
         // Création des données du troisième point
-        gl_Position = PERSPECTIVE * VIEW * MODEL * transformations[vertexID] * vec4(x0, 1.0, z0, 1.0);
+        gl_Position = proj * vec4(x0, 2.0, z0, 1.0);
         gs_out.fragPosition = vec3(MODEL * transformations[vertexID] * vec4(x0, 0.0, z0, 1.0));
-        gs_out.Normal = transpose(inverse(mat3(MODEL))) * vec3(-cos(angle), 0.0, -sin(angle));
+        gs_out.Normal = normalMatrix * vec3(-cos(angle), 0.0, -sin(angle));
         gs_out.UVCoords = vec2(0.0, 0.0);
         gs_out.TextureIndex = vertexID % texturesNumber;
         // Création du sommet
         EmitVertex();
 
         // Création des données du quatrième point
-        gl_Position = PERSPECTIVE * VIEW * MODEL * transformations[vertexID] * vec4(x1, 1.0, z1, 1.0);
+        gl_Position = proj * vec4(x1, 2.0, z1, 1.0);
         gs_out.fragPosition = vec3(MODEL * transformations[vertexID] * vec4(x1, 0.0, z1, 1.0));
-        gs_out.Normal = transpose(inverse(mat3(MODEL))) * vec3(cos(angle), 0.0, sin(angle));
+        gs_out.Normal = normalMatrix * vec3(cos(angle), 0.0, sin(angle));
         gs_out.UVCoords = vec2(1.0, 0.0);
         gs_out.TextureIndex = vertexID % texturesNumber;
         // Création du sommet
