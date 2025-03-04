@@ -31,8 +31,8 @@ using namespace std;
 
 //****************************************
 #define NB_BRAS 4
-#define K_MAX 100 // Nombre d'itérations maximales dans le calcul de la cinématique inverse
-#define EPS 0.0001 // Marge d'erreur dans le calcul de la cinématique inverse
+#define K_MAX 10000 // Nombre d'itérations maximales dans le calcul de la cinématique inverse
+#define EPS 0.001 // Marge d'erreur dans le calcul de la cinématique inverse
 
 // Initialisation de la génération de nombres pseudo-aléatoires
 std::random_device rd;
@@ -185,7 +185,7 @@ arma::fmat compute_jacobian()
     }
     //std::cout << "position de l'os " << position(0) << " " << position(1) << " " << position(2) << std::endl; 
     // Calcul du produit vectoriel entre la position de l'os et l'axe de rotation de celui-ci
-    arma::fvec normal = arma::cross(axis, effector_position - position);
+    arma::fvec normal = arma::normalise(arma::cross(axis, effector_position - position));
     // Ajout du vecteur colonne résultant dans la Jacobienne
     jacobian_matrix.col(i) = normal;
   }
