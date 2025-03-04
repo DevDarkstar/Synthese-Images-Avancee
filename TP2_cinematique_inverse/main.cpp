@@ -43,7 +43,10 @@ std::vector<Bone*> bones;
 arma::fvec target{0.0f, 2.0f, 0.0f};
 float bone_scale[NB_BRAS] = {1.0f, 2.0f, 1.0f, 1.0f};
 float bone_angle[NB_BRAS] = {0.0f, -90.0f, 90.0f, 0.0f};
+float bone_angle_final[NB_BRAS];
 arma::fvec effector_position;
+float t = 0.0f;
+int invertFactor = 1;
 
 //****************************************
 
@@ -57,6 +60,7 @@ void reshape(int x,int y);
 void idle();
 void mouse(int bouton,int etat,int x,int y);
 void mousemotion(int x,int y);
+void anim( int NumTimer) ;
 void compute_inverse_kinematic();
 void bras(void);
 
@@ -86,6 +90,27 @@ void initBones(void)
   }
 }
 
+//Animation de l'interpolation
+void anim( int NumTimer)
+{
+    using namespace std::chrono;
+    static int i=0;
+    static time_point<system_clock> refTime = system_clock::now()  ;
+
+     time_point<system_clock> currentTime = system_clock::now(); // This and "end"'s type is std::chrono::time_point
+
+      duration<double> deltaTime = currentTime - refTime;
+
+int delatTemps = duration_cast<milliseconds>( deltaTime).count() ;
+
+            t += invertFactor * 0.025f;
+            if (t > 1.0f) invertFactor = -1;
+            else if(t < 0.0f) invertFactor = 1;
+           glutPostRedisplay();
+          glutTimerFunc(100,anim,1 );
+
+}
+
 
 int main(int argc,char **argv)
 {
@@ -112,6 +137,7 @@ int main(int argc,char **argv)
   glutReshapeFunc(reshape);
   glutMouseFunc(mouse);
   glutMotionFunc(mousemotion);
+  glutTimerFunc(200, anim, 1);
 
   glMatrixMode( GL_PROJECTION );
      glLoadIdentity();
@@ -195,21 +221,34 @@ void compute_inverse_kinematic()
     effector_position = get_effector_position();
     // Calcul de la nouvelle erreur
     E = target - effector_position; 
-    bras();
-    glutPostRedisplay();
   }
-
-  /*for(int i = 0; i < NB_BRAS; i++)
-  {
-    std::cout << "angle de l'os " << i << " : " << bones[i]->get_rotation() << std::endl;
-  }*/
+  
   std::cout << "Position finale de l'effecteur : " << effector_position(0) << " " << effector_position(1) << " " << effector_position(2) << std::endl;
   std::cout << "Position finale trouvee en " << k << " iterations." << std::endl; 
+  // Une fois le calcul terminé, nous stockons, les valeurs d'angles finales obtenues par la cinématique inverse
+  for(int i = 0; i < NB_BRAS; i++)
+  {
+    bone_angle_final[i] = bones[i]->get_rotation();
+  }
 }
 
 void bras()
 {
+  // Calcul des valeurs interpolées des angles des os du bras articulé
+  for(int i = 0; i < NB_BRAS; i++)
+  {
+    bones[i]->set_rotation((1-t)*bone_angle[i] + t*bone_angle_final[i]);
+  }
+  // Dessin du bras articulé
   bones[0]->draw_bone();
+  // Calcul de la position courante de l'effecteur sur le bras articulé
+  arma::fvec effector_pos = get_effector_position();
+  // dessin de l'effecteur
+  glPushMatrix();
+    glTranslatef(effector_pos(0), effector_pos(1), effector_pos(2));
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glutSolidSphere(0.125f, 16, 16);
+  glPopMatrix();
 }
 
 void affichage()
@@ -225,12 +264,12 @@ glShadeModel(GL_SMOOTH);
   glRotatef(anglex,0.0,1.0,0.0);
 
   bras();
+  // Affichage de la cible à atteindre par le bras articulé
   glPushMatrix();
-    glTranslatef(effector_position(0), effector_position(1), effector_position(2));
-    glColor3f(1.0f, 1.0f, 1.0f);
-    glutSolidSphere(0.15f, 16, 16);
+    glTranslatef(target(0), target(1), target(2));
+    glColor3f(0.5f, 0.5f, 0.5f);
+    glutSolidSphere(0.125f, 16, 16);
   glPopMatrix();
-
   //Repère
   //axe x en rouge
   glBegin(GL_LINES);

@@ -39,6 +39,11 @@ float Bone::get_rotation()
     return angle;
 }
 
+void Bone::set_rotation(float value)
+{
+    this->angle = value;
+}
+
 arma::fmat Bone::get_bone_transform()
 {
     // application de la rotation de l'os

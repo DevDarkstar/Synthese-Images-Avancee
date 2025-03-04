@@ -16,6 +16,7 @@ public:
     arma::fvec get_axis();
     arma::fmat get_bone_transform();
     float get_rotation();
+    void set_rotation(float value);
     void add_child(Bone* bone);
     void add_rotation(float value);
     void draw_bone(); 
