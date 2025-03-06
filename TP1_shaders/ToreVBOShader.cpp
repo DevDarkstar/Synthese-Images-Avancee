@@ -38,8 +38,8 @@ GLfloat coordTexture[(NB_R+1)*(NB_r+1)*2] ; // x 2 car U+V par sommets
 GLfloat normales[(NB_R+1)*(NB_r+1)*3];
 
 // initialisations
-void genereVBO();
-void deleteVBO();
+void genereVAO();
+void deleteVAO();
 void traceObjet();
 
 // fonctions de rappel de glut
@@ -122,7 +122,7 @@ vec3 cameraPosition(0.,0.,3.); // Position de la caméra
 // le matériau
 //---------------
 vec3 objectColor(1.0,0.5,0.0); // Couleur de l'objet (orange)
-GLfloat materialShininess=16.; // Brillance de l'objet
+GLfloat materialShininess=32.; // Brillance de l'objet
 vec3 materialSpecularColor(0.47,0.71,1.);  // couleur de la spéculaire (bleu ciel)
 vec3 materialAmbientColor(1.,1.,1.); // couleur de la lumière ambiante (blanc)
 vec3 materialDiffuseColor(0.,1.,1.); // couleur de la lumière diffuse (cyan)
@@ -328,29 +328,29 @@ int main(int argc,char **argv)
   glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE|GLUT_RGB);
   glutInitWindowPosition(200,200);
   glutInitWindowSize(screenWidth,screenHeight);
-  glutCreateWindow("CUBE VBO SHADER ");
+  glutCreateWindow("TP1 SHADERS");
 
 
-// Initialize GLEW
+  // Initialize GLEW
 	if (glewInit() != GLEW_OK) {
 		fprintf(stderr, "Failed to initialize GLEW\n");
 		return -1;
 	}
 
-//info version GLSL
-std::cout << "***** Info GPU *****" << std::endl;
-    std::cout << "Fabricant : " << glGetString (GL_VENDOR) << std::endl;
-    std::cout << "Carte graphique: " << glGetString (GL_RENDERER) << std::endl;
-    std::cout << "Version : " << glGetString (GL_VERSION) << std::endl;
-    std::cout << "Version GLSL : " << glGetString (GL_SHADING_LANGUAGE_VERSION) << std::endl << std::endl;
+  //info version GLSL
+  std::cout << "***** Info GPU *****" << std::endl;
+  std::cout << "Fabricant : " << glGetString (GL_VENDOR) << std::endl;
+  std::cout << "Carte graphique: " << glGetString (GL_RENDERER) << std::endl;
+  std::cout << "Version : " << glGetString (GL_VERSION) << std::endl;
+  std::cout << "Version GLSL : " << glGetString (GL_SHADING_LANGUAGE_VERSION) << std::endl << std::endl;
 
 	initOpenGL(); 
 
   // Création d'un tore
   createTorus(1.,.3);
 
-  // construction des VBO à partir des tableaux des informations du tore
-  genereVBO();
+  // construction du VAO et des VBOs à partir des tableaux des informations du tore
+  genereVAO();
   
   /* enregistrement des fonctions de rappel */
   glutDisplayFunc(affichage);
@@ -361,16 +361,10 @@ std::cout << "***** Info GPU *****" << std::endl;
 
   /* Entree dans la boucle principale glut */
   glutMainLoop();
-
-  // Suppression des "shader programs"
-  glDeleteProgram(phongIds.programID);
-  glDeleteProgram(toonIds.programID);
-  glDeleteProgram(goochIds.programID);
-  deleteVBO();
   return 0;
 }
 
-void genereVBO ()
+void genereVAO ()
 {
   if(glIsBuffer(VBO_sommets) == GL_TRUE) glDeleteBuffers(1, &VBO_sommets);
   glGenBuffers(1, &VBO_sommets);
@@ -408,15 +402,10 @@ void genereVBO ()
   glVertexAttribPointer (indexUVTexture, 2, GL_FLOAT, GL_FALSE, 0,  (void*)0  );
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VBO_indices);
-
-  // une fois la config terminée   
-  // on désactive le dernier VBO et le VAO pour qu'ils ne soit pas accidentellement modifié 
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
- 
 }
+
 //-----------------
-void deleteVBO ()
+void deleteVAO ()
 //-----------------
 {
   glDeleteBuffers(1, &VBO_sommets);
@@ -424,6 +413,11 @@ void deleteVBO ()
   glDeleteBuffers(1, &VBO_indices);
   glDeleteBuffers(1, &VBO_UVtext);
   glDeleteBuffers(1, &VAO);
+}
+
+void deleteTextures()
+{
+  glDeleteTextures(1, &silhouetteTex);
 }
 
 /* fonction d'affichage */
@@ -512,6 +506,8 @@ void traceObjet()
 //-------------------------------------
 {
  if (shaderType == 0){
+  // Désactivation de la texture 1D pour ce rendu
+  glBindTexture(GL_TEXTURE_1D, 0);
   // Activation du shader program contrôlant l'affichage du shader de Phong
   glUseProgram(phongIds.programID);
   // Affectation de valeurs pour les variables uniformes du shader de Phong
@@ -526,6 +522,8 @@ void traceObjet()
   setToonUniformValues(toonIds);
  }
  else{
+  // Désactivation de la texture 1D pour ce rendu
+  glBindTexture(GL_TEXTURE_1D, 0);
   // Activation du shader program contrôlant l'affichage du shader de Gooch
   glUseProgram(goochIds.programID);
   // Affectation de valeurs pour les variables uniformes du shader de Gooch
@@ -533,13 +531,7 @@ void traceObjet()
  }
  
   //pour l'affichage
-	glBindVertexArray(VAO); // on active le VAO
   glDrawElements(GL_TRIANGLES,  sizeof(indices), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	glBindVertexArray(0);    // on desactive les VAO
-  glUseProgram(0);         // et le pg
-  // Ainsi que d'éventuelles textures utilisées (cas du shader Toon)
-  glBindTexture(GL_TEXTURE_1D, 0);
-
 }
 
 void reshape(int w, int h)
@@ -648,6 +640,20 @@ void clavier(unsigned char touche,int x,int y)
       break;
       
     case 'q' : /*la touche 'q' permet de quitter le programme */
+      std::cout << "Désactivation du VAO...\n";
+      glBindVertexArray(0);
+      std::cout << "Désactivation du shader program actif ainsi que les textures utilisées pour les rendus...\n";
+      glUseProgram(0);
+      glBindTexture(GL_TEXTURE_1D, 0);
+      std::cout << "Suppression des éléments du programme...\n";
+      // Suppression des shader programs
+      glDeleteProgram(phongIds.programID);
+      glDeleteProgram(toonIds.programID);
+      glDeleteProgram(goochIds.programID);
+      // Ainsi que des VAO, VBOs et textures utilisées dans le programme
+      deleteVAO();
+      deleteTextures();
+      std::cout << "Désactivations et suppressions terminées..." << std::endl;
       exit(0);
   }
 }

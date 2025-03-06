@@ -9,7 +9,7 @@ Bone::Bone(const arma::fvec& position, const arma::fvec& size, const float angle
 {
     this->position = position;
     this->size = size;
-    this->axis = (axis == 'X') ? arma::fvec{1.,0.,0.} : (axis == 'Y') ? arma::fvec{0.,1.,0.} : arma::fvec{0.,0.,1.};
+    this->axis = (axis == 'X') ? arma::fvec{1.f,0.f,0.f} : (axis == 'Y') ? arma::fvec{0.f,1.f,0.f} : arma::fvec{0.f,0.f,1.f};
     this->color = color;
     this->angle = angle;
 }
