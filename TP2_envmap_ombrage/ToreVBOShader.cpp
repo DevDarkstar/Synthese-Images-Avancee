@@ -374,6 +374,8 @@ void initTexture(void)
 
   // Désactivation de la texture une fois le paramétrage effectué
   glBindTexture(GL_TEXTURE_2D, 0); 
+  // Libération de la mémoire allouée au stockage des informations de la texture
+  delete[] image;
 }
 
 void initSkyboxTexture(void){
@@ -412,6 +414,13 @@ void initSkyboxTexture(void){
   
   // Désactivation de la texture une fois les paramétrages effectués
   glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+  // Libération de la mémoire allouée au stockage des informations de l'environment map
+  delete[] front;
+  delete[] left;
+  delete[] right;
+  delete[] top;
+  delete[] bottom;
+  delete[] back;
 }
 
 void getUniformLocationSkybox(SkyboxIDs& skybox){
@@ -565,15 +574,6 @@ std::cout << "***** Info GPU *****" << std::endl;
   /* Entree dans la boucle principale glut */
   glutMainLoop();
 
-  // Suppression des shader programs
-  glDeleteProgram(skyboxIds.programID);
-  glDeleteProgram(toonIds.programID);
-  glDeleteProgram(shadowIds.programID);
-  glDeleteProgram(phongIds.programID);
-  deleteVBOTore();
-  deleteVBOPlan();
-  deleteTextures();
-  deleteFramebuffer();
   return 0;
 }
 
@@ -777,14 +777,12 @@ void traceTore()
 {
   glBindVertexArray(VAO); // on active le VAO
   glDrawElements(GL_TRIANGLES,  sizeof(indices), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	glBindVertexArray(0);    // on desactive les VAO
 }
 
 void tracePlan()
 {
 	glBindVertexArray(VAO_plan); // on active le VAO
   glDrawElements(GL_TRIANGLES,  sizeof(indices_plan), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	glBindVertexArray(0);    // on desactive les VAO
 }
 
 //-------------------------------------
@@ -823,7 +821,6 @@ void traceObjet()
  
   //pour l'affichage
 	traceTore();
-  glUseProgram(0);         // et le pg
 
   // Désactivation des textures
   glActiveTexture(GL_TEXTURE1);
@@ -867,11 +864,6 @@ void traceShadowEffect()
 	traceTore();
   //Affichage du plan
   tracePlan();
-
-  // Désactivation du shader program
-  glUseProgram(0);
-  // Désactivation de la texture
-  glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void reshape(int w, int h)
@@ -975,6 +967,24 @@ void clavier(unsigned char touche,int x,int y)
       glutPostRedisplay();
       break;     
     case 'q' : /*la touche 'q' permet de quitter le programme */
+      std::cout << "Désactivation du VAO actif...\n";
+      glBindVertexArray(0);
+      std::cout << "Désactivation du shader program actif ainsi que les textures utilisées pour les rendus...\n";
+      glUseProgram(0);
+      glBindTexture(GL_TEXTURE_1D, 0);
+      std::cout << "Suppression des éléments du programme...\n";
+      // Suppression des shader programs
+      glDeleteProgram(toonIds.programID);
+      glDeleteProgram(shadowIds.programID);
+      glDeleteProgram(phongIds.programID);
+      glDeleteProgram(skyboxIds.programID);
+      // Ainsi que des VAO, VBOs, framebuffers et textures utilisées dans le programme
+      deleteVBOTore();
+      deleteVBOPlan();
+      deleteTextures();
+      deleteFramebuffer();
+      std::cout << "Désactivations et suppressions terminées..." << std::endl;
+  
       exit(0);
   }
 }

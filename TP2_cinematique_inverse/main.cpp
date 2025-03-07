@@ -28,15 +28,15 @@ using namespace std;
 std::random_device rd;
 // Création du moteur de génération
 std::default_random_engine engine(rd());
-std::vector<arma::fvec> color;
-std::vector<Bone*> bones;
-arma::fvec target{0.0f, 2.0f, 0.0f};
-float bone_scale[NB_BRAS] = {1.0f, 2.0f, 1.0f, 1.0f};
-float bone_angle[NB_BRAS] = {0.0f, -90.0f, 90.0f, 0.0f};
-float bone_angle_final[NB_BRAS];
-arma::fvec effector_position;
-float t = 0.0f;
-int invertFactor = 1;
+std::vector<arma::fvec> color; // Couleurs des os du bras articulé
+std::vector<Bone*> bones; // Conteneur des os du bras articulé
+arma::fvec target{0.0f, 2.0f, 0.0f}; // Position dans l'espace à atteindre (sphère grise dans le rendu)
+float bone_scale[NB_BRAS] = {1.0f, 2.0f, 1.0f, 1.0f}; // Dimensions des os du bras
+float bone_angle[NB_BRAS] = {0.0f, -90.0f, 90.0f, 0.0f}; // Valeurs d'angle initiales des os
+float bone_angle_final[NB_BRAS]; // Valeurs d'angle finales des os (obtenues après la cinématique inverse)
+arma::fvec effector_position; // Position de l'effecteur (sphère blanche dans le rendu)
+float t = 0.0f; // Paramètre de l'interpolation linéaire utilisé pour l'animation du bras articulé
+int invertFactor = 1; // Facteur d'invertion permettant d'inverser l'animation lorsque t atteint 0 ou 1 (boucle d'animation infinie)
 
 //****************************************
 
@@ -94,8 +94,14 @@ void anim( int NumTimer)
   int delatTemps = duration_cast<milliseconds>( deltaTime).count();
 
   t += invertFactor * 0.025f;
-  if (t > 1.0f) invertFactor = -1;
-  else if(t < 0.0f) invertFactor = 1;
+  if (t > 1.0f) {
+    t = 1.0f;
+    invertFactor = -1;
+  }
+  else if(t < 0.0f) {
+    t = 0.0f;
+    invertFactor = 1;
+  }
   glutPostRedisplay();
   glutTimerFunc(100,anim,1 );
 }
@@ -197,7 +203,7 @@ void compute_inverse_kinematic()
     arma::fmat J_plus = arma::pinv(J);
     // Calcul du produit entre la pseudo-inverse de la Jacobienne et la marge d'erreur entre la position de l'effecteur et la cible
     arma::fvec Lambda = J_plus * E;
-    // Nous faisons ensuite en sorte qu'aucune valeur contenue dans le vecteur Lambda ne dépasse pas 2 degrés d'angle
+    // Nous faisons ensuite en sorte qu'aucune valeur contenue dans le vecteur Lambda ne dépasse 2 degrés d'angle
     float max_lambda = arma::max(Lambda);
     if(max_lambda > 2.0f)
       Lambda *= (2.0f / max_lambda);

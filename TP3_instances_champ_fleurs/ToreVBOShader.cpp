@@ -651,15 +651,6 @@ int main(int argc,char **argv)
 
   /* Entree dans la boucle principale glut */
   glutMainLoop();
-
-  // Suppression des shader programs
-  glDeleteProgram(terrainIds.programID);
-  glDeleteProgram(foliageIds.programID);
-  // Ainsi que des VBO et SSBO utilisés dans le programme
-  deleteVBOTerrain();
-  deleteVBOFoliageSupport();
-  deleteSSBOFoliageSupport();
-  deleteTextures();
   return 0;
 }
 
@@ -745,8 +736,8 @@ void genereSSBOFoliageTransformations(void){
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO_foliage_transformations);
   // Affectation des données des matrices de transformations au SSBO
   glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(foliage_transformations), foliage_transformations, GL_DYNAMIC_DRAW);
-  // Désactivation du SSBO une fois la paramétrisation terminée
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); 
+  // On effectue le lien entre le SSBO et le point de binding 0 dans le shader
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO_foliage_transformations);
 }
 
 
@@ -846,7 +837,6 @@ void traceTerrain()
 {
 	glBindVertexArray(VAO_terrain); // on active le VAO
   glDrawElements(GL_TRIANGLES,  sizeof(indices_terrain) / sizeof(GLuint), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	glBindVertexArray(0);    // on desactive les VAO
 }
 
 void traceFoliageSupport()
@@ -854,14 +844,7 @@ void traceFoliageSupport()
   glBindVertexArray(VAO_vegetation); // on active le VAO
   // On utilise le SSBO
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO_foliage_transformations);
-  // On effectue le lien entre le SSBO et le point de binding 0 dans le shader
-  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO_foliage_transformations);
   glDrawElementsInstanced(GL_TRIANGLES, sizeof(indices_support) / sizeof(GLuint), GL_UNSIGNED_INT, 0, FOLIAGE_INSTANCES);// on appelle la fonction dessin 
-  //glDrawArraysInstanced(GL_TRIANGLES, 0, sizeof(sommets_support) / (6 * sizeof(GLfloat)), FOLIAGE_INSTANCES);
-  glBindVertexArray(0);    // on desactive les VAO
-  // Ainsi que le SSBO tout en désactivant le lien dans le shader
-  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
 //-------------------------------------
@@ -896,14 +879,6 @@ void traceObjet()
   glUniform1i(foliageIds.locFoliageTexture, 1);
   // Affichage de la végétation
   traceFoliageSupport();
-  // Désactivation du shader program 
-  glUseProgram(0);         // et le pg
-
-  // Désactivation des textures
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, 0);
-  glActiveTexture(GL_TEXTURE1);
-  glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 }
 
 void reshape(int w, int h)
@@ -975,6 +950,29 @@ void clavier(unsigned char touche,int x,int y)
       glutPostRedisplay();
       break;    
     case 'q' : /*la touche 'q' permet de quitter le programme */
+      std::cout << "Désactivation du VAO actif ainsi que le SSBO...\n";
+      glBindVertexArray(0);
+      // Désactivation du SSBO ainsi que le lien dans le shader
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+      glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+      std::cout << "Désactivation du shader program actif ainsi que les textures utilisées pour les rendus...\n";
+      glUseProgram(0);
+      // Désactivation des textures
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, 0);
+      glActiveTexture(GL_TEXTURE1);
+      glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+      std::cout << "Suppression des éléments du programme...\n";
+      // Suppression des shader programs
+      glDeleteProgram(terrainIds.programID);
+      glDeleteProgram(foliageIds.programID);
+      // Ainsi que des VAO, VBOs, SSBO et textures utilisées dans le programme
+      deleteVBOTerrain();
+      deleteVBOFoliageSupport();
+      deleteSSBOFoliageSupport();
+      deleteTextures();
+      std::cout << "Désactivations et suppressions terminées..." << std::endl;
+      
       exit(0);
   }
 }

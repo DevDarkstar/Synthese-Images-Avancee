@@ -261,9 +261,6 @@ int main(int argc,char **argv)
   /* Entree dans la boucle principale glut */
   glutMainLoop();
 
-  glDeleteProgram(normalIds.programID);
-  glDeleteProgram(toonIds.programID);
-  deleteVBOTore();
   return 0;
 }
 
@@ -306,11 +303,6 @@ void genereVBOTore (void)
   glVertexAttribPointer (indexUVTexture, 2, GL_FLOAT, GL_FALSE, 0, (void*)0);
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VBO_indices);
- 
-  // une fois la config terminée   
-  // on désactive le dernier VBO et le VAO pour qu'ils ne soit pas accidentellement modifié 
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
 }
 
 //-----------------
@@ -385,9 +377,7 @@ void traceNormales(void)
 //-------------------------------------
 {
   //pour l'affichage
-	glBindVertexArray(VAO); // on active le VAO
   glDrawElements(GL_POINTS,  sizeof(indices), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	glBindVertexArray(0);    // on desactive les VAO
 }
 //-------------------------------------
 //Trace le tore 2 via le VAO
@@ -395,9 +385,7 @@ void traceTore(void)
 //-------------------------------------
 {
   //pour l'affichage
-	glBindVertexArray(VAO); // on active le VAO
   glDrawElements(GL_TRIANGLES,  sizeof(indices), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	glBindVertexArray(0);    // on desactive les VAO
 }
 
 void traceNormalEffect(void)
@@ -406,18 +394,14 @@ void traceNormalEffect(void)
   // Utilisation du shader program dédié
   glUseProgram(toonIds.programID);
   setToonUniformValues(toonIds);
-
   //Rendu du tore
 	traceTore();
-  glUseProgram(0);
   // Deuxième passe - rendu des normales
   // Utilisation du shader program dédié
   glUseProgram(normalIds.programID);
   setNormalUniformValues(normalIds);
   // Rendu des normales sur le tore
   traceNormales();
-  // Désactivation du shader program
-  glUseProgram(0);
 }
 
 void reshape(int w, int h)
@@ -491,10 +475,21 @@ void clavier(unsigned char touche,int x,int y)
       glutPostRedisplay();
       break; 
       
+    case 'q' : /*la touche 'q' permet de quitter le programme */
+      std::cout << "Désactivation du VAO actif...\n";
+      glBindVertexArray(0);
+      std::cout << "Désactivation du shader program actif...\n";
+      glUseProgram(0);
+      std::cout << "Suppression des éléments du programme...\n";
+      // Suppression des shader programs
+      glDeleteProgram(normalIds.programID);
+      glDeleteProgram(toonIds.programID);
+      // Ainsi que des VAO, VBOs utilisés dans le programme
+      deleteVBOTore();
+      std::cout << "Désactivations et suppressions terminées..." << std::endl;
       
- case 'q' : /*la touche 'q' permet de quitter le programme */
       exit(0);
-    }
+  }
 }
 
 

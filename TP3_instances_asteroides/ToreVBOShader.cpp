@@ -48,7 +48,6 @@ using namespace std;
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
 #define PI 3.14159265358979323846
-#define FOLIAGE_PLANE_NUMBER 3 // Nombre de plans utilisés pour afficher une plante
 #define ASTEROID_RADIUS 1.0
 #define ASTEROID_MIN_RADIUS 0.03 // Rayon minimal d'un astéroïde
 #define ASTEROID_MAX_RADIUS 0.1 // Rayon maximal d'un astéroïde
@@ -459,7 +458,7 @@ int main(int argc,char **argv)
   glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE|GLUT_RGB);
   glutInitWindowPosition(200,200);
   glutInitWindowSize(screenWidth,screenHeight);
-  glutCreateWindow("TP INSTANCES CHAMP FLEURS");
+  glutCreateWindow("TP INSTANCES ASTEROIDES");
 
 
 // Initialize GLEW
@@ -509,15 +508,6 @@ int main(int argc,char **argv)
 
   /* Entree dans la boucle principale glut */
   glutMainLoop();
-
-  // Suppression des shader programs
-  glDeleteProgram(planetIds.programID);
-  glDeleteProgram(asteroidIds.programID);
-  // Ainsi que des VBO et SSBO utilisés dans le programme
-  deleteVBOPlanete(&planetData);
-  deleteVBOAsteroide(&asteroidData);
-  deleteSSBOAsteroid();
-  deleteTextures();
   return 0;
 }
 
@@ -618,8 +608,8 @@ void genereSSBOAsteroidTransformations(void){
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO_asteroid_transformations);
   // Affectation des données des matrices de transformations au SSBO
   glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(asteroid_transformations), asteroid_transformations, GL_DYNAMIC_DRAW);
-  // Désactivation du SSBO une fois la paramétrisation terminée
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); 
+  // On effectue le lien entre le SSBO et le point de binding 0 dans le shader
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO_asteroid_transformations);
 }
 
 
@@ -722,21 +712,12 @@ void tracePlanete()
 {
 	glBindVertexArray(planetData.VAO); // on active le VAO
   glDrawElements(GL_TRIANGLES,  sizeof(planetData.indices) / sizeof(GLuint), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	glBindVertexArray(0);    // on desactive les VAO
 }
 
 void traceAsteroide()
 {
   glBindVertexArray(asteroidData.VAO); // on active le VAO
-  // On utilise le SSBO
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO_asteroid_transformations);
-  // On effectue le lien entre le SSBO et le point de binding 0 dans le shader
-  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO_asteroid_transformations);
   glDrawElementsInstanced(GL_TRIANGLES, sizeof(asteroidData.indices) / sizeof(GLuint), GL_UNSIGNED_INT, 0, ASTEROID_INSTANCES);// on appelle la fonction dessin 
-  glBindVertexArray(0);    // on desactive les VAO
-  // Ainsi que le SSBO tout en désactivant le lien dans le shader
-  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
 //-------------------------------------
@@ -771,14 +752,6 @@ void traceObjet()
   glUniform1i(asteroidIds.locAsteroidTexture, 1);
   // Affichage de la végétation
   traceAsteroide();
-  // Désactivation du shader program 
-  glUseProgram(0);         // et le pg
-
-  // Désactivation des textures
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, 0);
-  glActiveTexture(GL_TEXTURE1);
-  glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void reshape(int w, int h)
@@ -850,6 +823,28 @@ void clavier(unsigned char touche,int x,int y)
       glutPostRedisplay();
       break;    
     case 'q' : /*la touche 'q' permet de quitter le programme */
+      std::cout << "Désactivation du VAO actif ainsi que le SSBO...\n";
+      glBindVertexArray(0);
+      // Désactivation du SSBO ainsi que le lien dans le shader
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+      glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+      std::cout << "Désactivation du shader program actif ainsi que les textures utilisées pour les rendus...\n";
+      glUseProgram(0);
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, 0);
+      glActiveTexture(GL_TEXTURE1);
+      glBindTexture(GL_TEXTURE_2D, 0);
+      std::cout << "Suppression des éléments du programme...\n";
+      // Suppression des shader programs
+      glDeleteProgram(planetIds.programID);
+      glDeleteProgram(asteroidIds.programID);
+      // Ainsi que des VAO, VBOs, SSBO et textures utilisées dans le programme
+      deleteVBOPlanete(&planetData);
+      deleteVBOAsteroide(&asteroidData);
+      deleteSSBOAsteroid();
+      deleteTextures();
+      std::cout << "Désactivations et suppressions terminées..." << std::endl;
+
       exit(0);
   }
 }
