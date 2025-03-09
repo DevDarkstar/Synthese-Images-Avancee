@@ -1,3 +1,4 @@
+
 /* inclusion des fichiers d'en-tete Glut */
 #include <iostream>
 #include <sstream>
@@ -127,8 +128,8 @@ void createTorus(float R, float r )
 	float pasU, pasV;
   pasU= 1./NB_R;
   pasV= 1./NB_r;
-  for (int i =0;i<NB_R;i++ )
-    for (int j =0;j<NB_r;j++ )
+  for (int i =0;i<=NB_R;i++ )
+    for (int j =0;j<=NB_r;j++ )
     {
       // Création d'une nouvelle structure VertexData
       VertexData data;
@@ -155,15 +156,11 @@ for (int j =0;j<NB_r;j++ )
 { 	
 int i0,i1,i2,i3,i4,i5;
  	indices[(i*NB_r*6)+ (j*6)]= (unsigned int)((i*(NB_r+1))+ j); 
-   indices[(i*NB_r*6)+ (j*6)+1]=(unsigned int)(((i+1)%NB_R)*(NB_r+1)+ (j));
-   indices[(i*NB_r*6)+ (j*6)+2]=(unsigned int)((((i+1)%NB_R)*(NB_r+1))+ (j+1)%NB_r);
+   indices[(i*NB_r*6)+ (j*6)+1]=(unsigned int)((i+1)*(NB_r+1)+ (j));
+   indices[(i*NB_r*6)+ (j*6)+2]=(unsigned int)(((i+1)*(NB_r+1))+ (j+1));
    indices[(i*NB_r*6)+ (j*6)+3]=(unsigned int)((i*(NB_r+1))+ j);
-   indices[(i*NB_r*6)+ (j*6)+4]=(unsigned int)((((i+1)%NB_R)*(NB_r+1))+ (j+1)%NB_r);
-   indices[(i*NB_r*6)+ (j*6)+5]=(unsigned int)(((i)*(NB_r+1))+ (j+1)%NB_r);
-}
-for(int i = 0; i < NB_R * NB_r * 6; i++)
-{
-  std::cout << indices[i] << " ";
+   indices[(i*NB_r*6)+ (j*6)+4]=(unsigned int)(((i+1)*(NB_r+1))+ (j+1));
+   indices[(i*NB_r*6)+ (j*6)+5]=(unsigned int)(((i)*(NB_r+1))+ (j+1));
 }
 }
 
@@ -218,7 +215,7 @@ int main(int argc,char **argv)
   glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE|GLUT_RGB);
   glutInitWindowPosition(200,200);
   glutInitWindowSize(screenWidth,screenHeight);
-  glutCreateWindow("CUBE VBO SHADER ");
+  glutCreateWindow("TORE WITH SSBO");
 
 
 // Initialize GLEW
@@ -251,13 +248,6 @@ std::cout << "***** Info GPU *****" << std::endl;
 
   /* Entree dans la boucle principale glut */
   glutMainLoop();
-  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
-  // Suppression des "shader programs"
-  glDeleteProgram(phongIds.programID);
-  // Du VAO et de l'IBO
-  deleteVAO();
-  // ainsi que le SSBO
-  deleteSSBOToreVertex();
   return 0;
 }
 
@@ -284,12 +274,8 @@ void genereVAO()
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO_indices);
   // Affectation des données à l'IBO
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices),indices , GL_STATIC_DRAW);
-
-  // une fois la config terminée   
-  // on désactive l'IBO et le VAO une fois leur utilisation terminée
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
 }
+
 //-----------------
 void deleteVAO ()
 //-----------------
@@ -361,18 +347,8 @@ void traceObjet()
   // Affectation de valeurs pour les variables uniformes du shader de Phong
   setPhongUniformValues(phongIds);
  
-  //pour l'affichage
-	glBindVertexArray(VAO); // on utilise le VAO
-  // On utilise le SSBO pour transmettre les informations des sommets aux shaders
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_tore_vertex);
-  
   // On effectue le rendu du tore
-  std::cout << "hello\n";
   glDrawElements(GL_TRIANGLES, sizeof(indices), GL_UNSIGNED_INT, 0);// on appelle la fonction dessin 
-	std::cout << "hello2\n";
-  glBindVertexArray(0);    // on desactive le VAO
-  // Ainsi que le SSBO
-  glUseProgram(0);         // et le shader program
 }
 
 void reshape(int w, int h)
@@ -444,11 +420,23 @@ void clavier(unsigned char touche,int x,int y)
       glutPostRedisplay();
       break;     
     case 'q' : /*la touche 'q' permet de quitter le programme */
+      std::cout << "Désactivation du VAO et du SSBO actif...\n";
+      glBindVertexArray(0);
+      // Désactivation du SSBO ainsi que le lien dans le shader
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+      glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+      std::cout << "Désactivation du shader program actif...\n";
+      glUseProgram(0);
+      std::cout << "Suppression des éléments du programme...\n";
+      // Suppression des shader programs
+      glDeleteProgram(phongIds.programID);
+      // Ainsi que des VAO, VBOs ou SSBOs utilisés dans le programme
+      deleteVAO();
+      deleteSSBOToreVertex();
+      std::cout << "Désactivations et suppressions terminées..." << std::endl;
       exit(0);
   }
 }
-
-
 
 void mouse(int button, int state, int x, int y)
 {
