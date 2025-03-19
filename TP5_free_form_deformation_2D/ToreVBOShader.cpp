@@ -642,26 +642,6 @@ void clavier(unsigned char touche,int x,int y)
       updateCircleVerticesPosition();
       glutPostRedisplay();
       break;
-    case 'z': /*Déplacement du point de contrôle actif en -z*/
-      sommets_grille[control_point_y_coord * 3 + control_point_x_coord][2] -= 0.1f;
-      // Mise à jour des coordonnées des sommets de la grille de déformation dans le VBO correspondant
-      glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets_grille);
-      glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(std::array<GLfloat,3>) * sommets_grille.size(), (const void*)sommets_grille.data());
-      glBindBuffer(GL_ARRAY_BUFFER, 0);
-      // Mise à jour des nouvelles coordonnées des sommets du cercle unitaire après déformation
-      updateCircleVerticesPosition();
-      glutPostRedisplay();
-      break;  
-    case 'Z': /*Déplacement du point de contrôle actif en +z*/
-      sommets_grille[control_point_y_coord * 3 + control_point_x_coord][2] += 0.1f;
-      // Mise à jour des coordonnées des sommets de la grille de déformation dans le VBO correspondant
-      glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets_grille);
-      glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(std::array<GLfloat,3>) * sommets_grille.size(), (const void*)sommets_grille.data());
-      glBindBuffer(GL_ARRAY_BUFFER, 0);
-      // Mise à jour des nouvelles coordonnées des sommets du cercle unitaire après déformation
-      updateCircleVerticesPosition();
-      glutPostRedisplay();
-      break;
     case 's': /*Sélection d'un nouveau point de contrôle selon les x*/
       control_point_x_coord = (control_point_x_coord + 1) % 3;
       std::cout << "Point de controle actif : (" << control_point_x_coord << "," << control_point_y_coord << ")" << std::endl;
