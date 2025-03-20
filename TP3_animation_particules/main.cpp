@@ -34,7 +34,7 @@ using namespace glm;
 using namespace std;
 
 typedef struct{
-  GLuint tauxCreation = 25;
+  GLuint tauxCreation = 1;
   GLfloat dureeVie = 5.0f;
 } SystemeParticule;
 
@@ -80,11 +80,29 @@ float cameraDistance=1.;
 float t = 0.001f;
 float coneRadius = 10.0f;
 static float fountainHeight = 60.0f;
+float sphereRadius = 0.01f;
 // variables Handle d'opengl 
 //--------------------------
 GLuint programID;   // handle pour le shader
 GLuint MatrixIDMVP,MatrixIDView,MatrixIDModel,MatrixIDPerspective;    // handle pour la matrice MVP
 GLuint VBO_sommets,VBO_normales, VBO_indices,VBO_UVtext,VAO;
+
+struct PhongIDs{
+  GLuint programID; // Gestionnaire du "shader program"
+  GLuint MatrixIDView,MatrixIDModel,MatrixIDPerspective; // Matrices modèle, vue et projection
+  GLuint locCameraPosition; // Position de la caméra
+  GLuint locMaterialShininess; // Brillance de l'objet
+  GLuint locMaterialSpecular; // Couleur de la spéculaire
+  GLuint locLightPosition ; // Position de la lumière
+  GLuint locMaterialAmbient; // Couleur de la lumière ambiante
+  GLuint locMaterialDiffuse; // Couleur de la lumière diffuse
+  GLuint locAmbientCoefficient; // Coefficient de la lumière ambiante Ka
+  GLuint locDiffuseCoefficient; // Coefficient de la lumière diffuse Kd
+  GLuint locSpecularCoefficient; // Coefficient de la lumière spéculaire Ks
+  GLuint locSphereRadius; // Rayon des particules
+};
+
+PhongIDs phongIds;
 
 // Initialisation de la génération de nombres pseudo-aléatoires
 std::random_device rd;
@@ -102,14 +120,17 @@ GLuint indexVertex=0, indexUVTexture=2, indexNormale=3, indexVitesse=4 ;
 vec3 cameraPosition(2.,0.,0.);
 // le matériau
 //---------------
-GLfloat materialShininess=3.;
+GLfloat materialShininess=32.; // Brillance de l'objet
+vec3 materialSpecularColor(0.47,0.71,1.);  // couleur de la spéculaire (bleu ciel)
+vec3 materialAmbientColor(1.,1.,1.); // couleur de la lumière ambiante (blanc)
+vec3 materialDiffuseColor(0.,1.,1.); // couleur de la lumière diffuse (cyan)
 
 // la lumière
 //-----------
-vec3 LightPosition(1.,0.,.5);
-vec3 LightIntensities(1.,1.,1.);// couleur la lumiere
-GLfloat LightAttenuation =1.;
-GLfloat LightAmbientCoefficient=.1;
+vec3 lightPosition(1.,0.,.5);
+GLfloat Ka = .8; // Coefficient de la lumière ambiante
+GLfloat Kd = .9; // Coefficient de la lumière diffuse
+GLfloat Ks = .7; // Coefficient de la lumière spéculaire
 
 glm::mat4 MVP;      // justement la voilà
 glm::mat4 Model, View, Projection;    // Matrices constituant MVP
@@ -176,19 +197,62 @@ void miseAJourParticules(int delatTemps)
       //(*it).position[2] = (posZ > 1.0f) ? 1.0f : posZ;
       (*it).position[2] += (*it).vitesse[2]*t;
       
-      if((*it).position[2] <= 0.0f)
+      if((*it).position[2] <= sphereRadius)
       {
-        (*it).force[0] = 0.0f;
+        /*(*it).force[0] = 0.0f;
         (*it).force[1] = 0.0f;
         (*it).force[2] = 0.0f;
 
         (*it).vitesse[0] = 0.0f;
-        (*it).vitesse[1] = 0.0f;
-        (*it).vitesse[2] = 0.0f;
+        (*it).vitesse[1] = 0.0f;*/
+        (*it).position[2] = sphereRadius;
+        (*it).vitesse[2] *= -0.5f;
       }
       ++it;
     }
   }
+}
+
+// Récupération des emplacements des variables uniformes pour le shader de Phong
+void getUniformLocationPhong(PhongIDs& phong){
+  //Chargement des vertex et fragment shaders pour Phong
+  //phong.programID = LoadShaders("PhongShader.vert", "PhongShader.frag");
+  phong.programID = LoadShadersWithGeom( "PhongShader.vert", "PhongShader.geom", "PhongShader.frag" );
+  // Récupération des emplacements des matrices modèle, vue et projection dans les shaders
+  phong.MatrixIDView = glGetUniformLocation(phong.programID, "VIEW");
+  phong.MatrixIDModel = glGetUniformLocation(phong.programID, "MODEL");
+  phong.MatrixIDPerspective = glGetUniformLocation(phong.programID, "PERSPECTIVE");
+
+  // Récupération des emplacements des variables unfiformes du shader de Phong
+  phong.locCameraPosition = glGetUniformLocation(phong.programID, "cameraPosition");
+  phong.locAmbientCoefficient = glGetUniformLocation(phong.programID, "Ka");
+  phong.locDiffuseCoefficient = glGetUniformLocation(phong.programID, "Kd");
+  phong.locSpecularCoefficient = glGetUniformLocation(phong.programID, "Ks");
+  phong.locMaterialAmbient = glGetUniformLocation(phong.programID, "material.ambient");
+  phong.locLightPosition = glGetUniformLocation(phong.programID, "lightPosition");
+  phong.locMaterialDiffuse = glGetUniformLocation(phong.programID, "material.diffuse");
+  phong.locMaterialShininess = glGetUniformLocation(phong.programID, "material.shininess");
+  phong.locMaterialSpecular = glGetUniformLocation(phong.programID, "material.specular");
+  phong.locSphereRadius = glGetUniformLocation(phong.programID, "radius");
+}
+
+// Affectation de valeurs pour les variables uniformes du shader de Phong
+void setPhongUniformValues(PhongIDs& phong){
+  //on envoie les données necessaires aux shaders */
+  glUniformMatrix4fv(phong.MatrixIDView, 1, GL_FALSE,&View[0][0]);
+  glUniformMatrix4fv(phong.MatrixIDModel, 1, GL_FALSE, &Model[0][0]);
+  glUniformMatrix4fv(phong.MatrixIDPerspective, 1, GL_FALSE, &Projection[0][0]);
+
+  glUniform3f(phong.locCameraPosition,cameraPosition.x, cameraPosition.y, cameraPosition.z);
+  glUniform1f(phong.locAmbientCoefficient, Ka);
+  glUniform1f(phong.locDiffuseCoefficient, Kd);
+  glUniform3f(phong.locMaterialAmbient, materialAmbientColor.r, materialAmbientColor.g, materialAmbientColor.b);
+  glUniform3f(phong.locLightPosition,lightPosition.x,lightPosition.y,lightPosition.z);
+  glUniform3f(phong.locMaterialDiffuse, materialDiffuseColor.r, materialDiffuseColor.g, materialDiffuseColor.b);
+  glUniform1f(phong.locMaterialShininess, materialShininess);
+  glUniform3f(phong.locMaterialSpecular, materialSpecularColor.r,materialSpecularColor.g,materialSpecularColor.b);
+  glUniform1f(phong.locSpecularCoefficient, Ks);
+  glUniform1f(phong.locSphereRadius, sphereRadius);
 }
 
 
@@ -199,18 +263,11 @@ void initOpenGL(void)
   glCullFace (GL_BACK); // on spécifie queil faut éliminer les face arriere
   glEnable(GL_CULL_FACE); // on active l'élimination des faces qui par défaut n'est pas active
   glEnable(GL_DEPTH_TEST); 
-// le shader
-   programID = LoadShaders( "PhongShader.vert", "PhongShader.frag" );
  glEnable( GL_PROGRAM_POINT_SIZE );
  //  glPointSize(30.);
  glEnable(GL_BLEND);
  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-   // Get  handles for our matrix transformations "MVP" VIEW  MODELuniform
-  MatrixIDMVP = glGetUniformLocation(programID, "MVP");
-//  MatrixIDView = glGetUniformLocation(programID, "VIEW");
-  MatrixIDModel = glGetUniformLocation(programID, "MODEL");
- // MatrixIDPerspective = glGetUniformLocation(programID, "PERSPECTIVE");
-
+  getUniformLocationPhong(phongIds);
   // Projection matrix : 65 Field of View, 1:1 ratio, display range : 1 unit <-> 1000 units
   // ATTENTIOn l'angle est donné en radians si f GLM_FORCE_RADIANS est défini sinon en degré
   Projection = glm::perspective( glm::radians(60.f), 1.0f, 1.0f, 1000.0f);
@@ -277,7 +334,6 @@ int main(int argc,char **argv)
 
 	initOpenGL(); 
 
-
    //creationParticules(systemeParticules.tauxCreation);
 
    genereVBO();
@@ -289,38 +345,37 @@ int main(int argc,char **argv)
   glutReshapeFunc(reshape);
   glutMouseFunc(mouse);
   glutMotionFunc(mouseMotion);
-  glutTimerFunc(200, anim, 1);
+  glutTimerFunc(25, anim, 1);
   /* Entree dans la boucle principale glut */
   glutMainLoop();
 
-  glDeleteProgram(programID);
-  deleteVBO();
   return 0;
 }
 
 void genereVBO ()
 {
 
-    if(glIsBuffer(VBO_sommets) == GL_TRUE) glDeleteBuffers(1, &VBO_sommets);
-    glGenBuffers(1, &VBO_sommets);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
+  if(glIsBuffer(VBO_sommets) == GL_TRUE) glDeleteBuffers(1, &VBO_sommets);
+  glGenBuffers(1, &VBO_sommets);
+  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
 
-    glBufferData(GL_ARRAY_BUFFER, listeParticules.size()*sizeof(Particule),listeParticules.data() , GL_DYNAMIC_DRAW);
-    glGenBuffers(1, &VAO);
-    glEnableVertexAttribArray(indexVertex);
-    glEnableVertexAttribArray(indexVitesse);
+  glBufferData(GL_ARRAY_BUFFER, listeParticules.size()*sizeof(Particule),listeParticules.data() , GL_DYNAMIC_DRAW);
+  glGenBuffers(1, &VAO);
+  glEnableVertexAttribArray(indexVertex);
+  glEnableVertexAttribArray(indexVitesse);
 
-    glBindVertexArray(VAO); // ici on bind le VAO , c'est lui qui recupèrera les configurations des VBO glVertexAttribPointer , glEnableVertexAttribArray...
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
+  glBindVertexArray(VAO); // ici on bind le VAO , c'est lui qui recupèrera les configurations des VBO glVertexAttribPointer , glEnableVertexAttribArray...
+  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
 
-    glVertexAttribPointer(indexVertex, 3, GL_FLOAT, GL_FALSE,sizeof(Particule),reinterpret_cast<void*>( offsetof(Particule, position)));
-    glVertexAttribPointer(indexVitesse, 3, GL_FLOAT, GL_FALSE,sizeof(Particule),reinterpret_cast<void*>( offsetof(Particule, vitesse)));
+  glVertexAttribPointer(indexVertex, 3, GL_FLOAT, GL_FALSE,sizeof(Particule),reinterpret_cast<void*>( offsetof(Particule, position)));
+  glVertexAttribPointer(indexVitesse, 3, GL_FLOAT, GL_FALSE,sizeof(Particule),reinterpret_cast<void*>( offsetof(Particule, vitesse)));
 
-// une fois la config terminée
-   // on désactive le dernier VBO et le VAO pour qu'ils ne soit pas accidentellement modifié
- glBindBuffer(GL_ARRAY_BUFFER, 0);
- glBindVertexArray(0);
+  // une fois la config terminée
+  // on désactive le dernier VBO et le VAO pour qu'ils ne soit pas accidentellement modifié
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindVertexArray(0);
 }
+
 //-----------------
 void deleteVBO ()
 //-----------------
@@ -332,8 +387,6 @@ void deleteVBO ()
   glDeleteBuffers(1, &VAO);
 }
 
-
-
 /* fonction d'affichage */
 void affichage()
 {
@@ -341,7 +394,7 @@ void affichage()
   glClearColor(1.,1.,1.,0.0);
   glClearDepth(10.0f);                         // 0 is near, >0 is far
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  glColor3f(1.0,1.0,1.0);
+  glColor3f(0.7,0.7,0.7);
   glPointSize(2.0);
  
      View       = glm::lookAt(   cameraPosition, // Camera is at (0,0,3), in World Space
@@ -367,34 +420,25 @@ void traceObjet()
 //-------------------------------------
 {
  // Use  shader & MVP matrix   MVP = Projection * View * Model;
- glUseProgram(programID);
-
-//on envoie les données necessaires aux shaders */
- glUniformMatrix4fv(MatrixIDMVP, 1, GL_FALSE, &MVP[0][0]);
- //glUniformMatrix4fv(MatrixIDView, 1, GL_FALSE,&View[0][0]);
- glUniformMatrix4fv(MatrixIDModel, 1, GL_FALSE, &Model[0][0]);
- //glUniformMatrix4fv(MatrixIDPerspective, 1, GL_FALSE, &Projection[0][0]);
+ glUseProgram(phongIds.programID);
+  setPhongUniformValues(phongIds);
 
  
-//pour l'affichage
+  //pour l'affichage
 
-        glBindVertexArray(VAO); // on active le VAO
+  glBindVertexArray(VAO); // on active le VAO
   glDrawArrays(GL_POINTS,0,listeParticules.size());
-   glBindVertexArray(0);    // on desactive les VAO
-
-  glUseProgram(0);         // et le pg
-
 }
 
 void reshape(int w, int h)
 {
-    // set viewport to be the entire window
-    glViewport(0, 0, (GLsizei)w, (GLsizei)h);// ATTENTION GLsizei important - indique qu'il faut convertir en entier non négatif
+  // set viewport to be the entire window
+  glViewport(0, 0, (GLsizei)w, (GLsizei)h);// ATTENTION GLsizei important - indique qu'il faut convertir en entier non négatif
 
-    // set perspective viewing frustum
-    float aspectRatio = (float)w / h;
+  // set perspective viewing frustum
+  float aspectRatio = (float)w / h;
 
-        Projection = glm::perspective(glm::radians(60.0f),(float)(w)/(float)h, 1.0f, 1000.0f);
+  Projection = glm::perspective(glm::radians(60.0f),(float)(w)/(float)h, 1.0f, 1000.0f);
 }
 
 
@@ -423,35 +467,27 @@ void clavier(unsigned char touche,int x,int y)
       glutPostRedisplay();
       break;
     case 'x' : /* Affichage en mode sommets seuls */
-      LightPosition.x-=.2;
+      lightPosition.x-=.2;
       glutPostRedisplay();
       break;
     case 'X' : /* Affichage en mode sommets seuls */
-      LightPosition.x+=.2;
+      lightPosition.x+=.2;
       glutPostRedisplay();
       break;
     case 'y' : /* Affichage en mode sommets seuls */
-      LightPosition.y-=.2;
+      lightPosition.y-=.2;
       glutPostRedisplay();
       break;
     case 'Y' : /* Affichage en mode sommets seuls */
-      LightPosition.y+=.2;
+      lightPosition.y+=.2;
       glutPostRedisplay();
       break;
     case 'z' : /* Affichage en mode sommets seuls */
-      LightPosition.z-=.2;
+      lightPosition.z-=.2;
       glutPostRedisplay();
       break;
     case 'Z' : /* Affichage en mode sommets seuls */
-      LightPosition.z+=.2;
-      glutPostRedisplay();
-      break;
-    case 'a' : /* Affichage en mode sommets seuls */
-      LightAmbientCoefficient-=.1;
-      glutPostRedisplay();
-      break;
-    case 'A' : /* Affichage en mode sommets seuls */
-      LightAmbientCoefficient+=.1;
+      lightPosition.z+=.2;
       glutPostRedisplay();
       break;
     case '+' : /* Augmente le taux de création de particules*/
@@ -496,7 +532,25 @@ void clavier(unsigned char touche,int x,int y)
       if(coneRadius > 15.0f) coneRadius = 15.0f;
       std::cout << "diametre du jet de la fontaine : " << coneRadius << " unites" << std::endl;
       break;
+    case 'p' : /*Augmente le rayon des particules*/
+      sphereRadius += 0.005f;
+      if(sphereRadius > 0.05f) sphereRadius = 0.05f;
+      break;
+    case 'm' : /*Diminue le rayon des particules*/
+      sphereRadius -= 0.005f;
+      if(sphereRadius < 0.005f) sphereRadius = 0.005f;
+      break;
     case 'q' : /*la touche 'q' permet de quitter le programme */
+      std::cout << "Désactivation du VAO actif...\n";
+      glBindVertexArray(0);
+      std::cout << "Désactivation du shader program actif...\n";
+      glUseProgram(0);
+      std::cout << "Suppression des éléments du programme...\n";
+      // Suppression des shader programs
+      glDeleteProgram(programID);
+      // Ainsi que des VAO, VBOs, framebuffers et textures utilisées dans le programme
+      deleteVBO();
+      std::cout << "Désactivations et suppressions terminées..." << std::endl;
       exit(0);
     }
 }
