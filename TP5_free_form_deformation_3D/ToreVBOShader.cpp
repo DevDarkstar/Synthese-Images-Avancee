@@ -685,6 +685,7 @@ void clavier(unsigned char touche,int x,int y)
       std::cout << "Suppression des éléments du programme...\n";
       // Suppression des shader programs
       glDeleteProgram(circleIds.programID);
+      glDeleteProgram(gridIds.programID);
       // Ainsi que des VAO, VBOs, framebuffers et textures utilisées dans le programme
       deleteVBOCercle();
       deleteVBOGrille();
