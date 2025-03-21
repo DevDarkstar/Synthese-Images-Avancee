@@ -1,0 +1,110 @@
+
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Particule{
+  float position[3] ;
+  float vitesse[3] ;
+  float masse;
+  float force[3];
+};
+
+struct ParticleBounds{
+    float minX;
+    float maxX;
+    float minY;
+    float maxY;
+    float minZ;
+    float maxZ;
+};
+
+layout(std430, binding = 0) buffer particulesBuf {
+    Particule particules[];
+};
+
+uniform float radius;
+uniform float deltaTime;
+uniform ParticleBounds bounds;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+
+    // Vérification pour éviter un dépassement de tableau
+    if (idx >= particules.length()) return;
+
+    Particule p = particules[idx];
+
+    // Calcul de l'accélération de la particule
+    vec3 acceleration = vec3(p.force[0]/p.masse, p.force[1]/p.masse, p.force[2]/p.masse);
+
+    // Mise à jour de la vitesse
+    p.vitesse[0] += acceleration.x*deltaTime;
+    p.vitesse[1] += acceleration.y*deltaTime;
+    p.vitesse[2] += acceleration.z*deltaTime;
+
+    // Mise à jour de la nouvelle position
+    //GLfloat posX = p.position[0] + p.vitesse[0]*deltaTime;
+    //p.position[0] = (posX < -0.5f) ? -0.5f : (posX > 0.5f) ? 0.5f : posX;
+    p.position[0] += p.vitesse[0]*deltaTime;
+    //GLfloat posY = p.position[1] + p.vitesse[1]*deltaTime;
+    //p.position[1] = (posY < -0.5f) ? -0.5f : (posY > 0.5f) ? 0.5f : posY;
+    p.position[1] += p.vitesse[1]*deltaTime;
+    //GLfloat posZ = p.position[2] + p.vitesse[2]*deltaTime;
+    //p.position[2] = (posZ > 1.0f) ? 1.0f : posZ;
+    p.position[2] += p.vitesse[2]*deltaTime;
+
+    // Si la particule touche l'arrière du cube (x = -0.5)
+    if(p.position[0] - radius <= bounds.minX)
+    {
+        // On fait en sorte que la particule ne sorte pas du cube
+        p.position[0] = bounds.minX + radius;
+        // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.vitesse[0] *= -0.7f;
+    }
+    // Sinon si la particule touche l'avant du cube (x = 0.5)
+    if(p.position[0] + radius >= bounds.maxX)
+    {
+        // On fait en sorte que la particule ne sorte pas du cube
+        p.position[0] = bounds.maxX - radius;
+        // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.vitesse[0] *= -0.7f;
+    }
+
+    // Si la particule touche le côté gauche du cube (y = -0.5)
+    if(p.position[1] - radius <= bounds.minY)
+    {
+        // On fait en sorte que la particule ne sorte pas du cube
+        p.position[1] = bounds.minY + radius;
+        // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.vitesse[1] *= -0.7f;
+    }
+    // Sinon si la particule touche le côté droit du cube (y = 0.5)
+    if(p.position[1] + radius >= bounds.maxY)
+    {
+        // On fait en sorte que la particule ne sorte pas du cube
+        p.position[1] = bounds.maxY - radius;
+        // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.vitesse[1] *= -0.7f;
+    }
+
+    // Si la particule touche le sol (z = 0)
+    if(p.position[2] - radius <= bounds.minZ)
+    {
+      // On fait en sorte que la particule ne traverse pas le sol
+      p.position[2] = radius;
+      // On diminue sa vitesse de 60% en z
+      p.vitesse[2] *= -0.4f;
+    }
+    // Sinon si elle touche le plafond (z = 2)
+    else if(p.position[2] + radius >= bounds.maxZ)
+    {
+        //On fait en sorte que la particule ne traverse pas le plafond
+        p.position[2] = bounds.maxZ - radius;
+        // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.vitesse[2] *= -0.7f;
+    }
+
+    // Mise à jour de la particule avec ses nouvelles données
+    particules[idx] = p;
+}

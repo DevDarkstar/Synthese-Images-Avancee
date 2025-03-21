@@ -28,36 +28,44 @@
 #include <vector>
 
 #define PI 3.14159265358979323846
+#define MAX_PARTICULES 10000
 
 
 using namespace glm;
 using namespace std;
 
 typedef struct{
-  GLuint tauxCreation = 1;
-  GLfloat dureeVie = 5.0f;
+  GLuint tauxCreation = 10;
 } SystemeParticule;
 
 typedef struct {
-  GLfloat position[3] ;
-  GLfloat vitesse[3] ;
+  GLfloat position[3];
+  GLfloat vitesse[3];
   GLfloat masse;
   GLfloat force[3];
-  GLfloat age;
-  GLfloat color[3];
-} Particule ;
+} Particule;
+
+typedef struct{
+  GLfloat minX = -0.5f;
+  GLfloat maxX = 0.5f;
+  GLfloat minY = -0.5f;
+  GLfloat maxY = 0.5f;
+  GLfloat minZ = 0.0f;
+  GLfloat maxZ = 1.5f;
+}ParticlesBounds;
 
 vector<Particule> listeParticules;
 SystemeParticule systemeParticules;
+ParticlesBounds particleBounds;
 
 
 void anim( int NumTimer) ;
 
 // initialisations
 
-void genereVBO();
-void createParticules(int nbParticules ) ;
-void deleteVBO();
+void genereSSBOParticules(void);
+void createParticules(int nbParticules);
+void deleteSSBOParticules();
 void traceObjet();
 
 // fonctions de rappel de glut
@@ -78,20 +86,28 @@ float mouseX, mouseY;
 float cameraAngleX;
 float cameraAngleY;
 float cameraDistance=1.;
-float t = 0.001f;
-float coneRadius = 10.0f;
-static float fountainHeight = 60.0f;
-float sphereRadius = 0.01f;
+float t = 0.001f; // Variable de discrétisation du temps
+float coneRadius = 10.0f; // Rayon de projection des particules
+static float fountainHeight = 60.0f; // Hauteur de la projection en +z des particules émises
+float sphereRadius = 0.01f; // Rayon des particules
+int nbParticules = 0; // Nombre de particules actuellement créées
 // variables Handle d'opengl 
 //--------------------------
-GLuint programID;   // handle pour le shader
-GLuint MatrixIDMVP,MatrixIDView,MatrixIDModel,MatrixIDPerspective;    // handle pour la matrice MVP
-GLuint VBO_sommets,VBO_normales, VBO_indices,VBO_UVtext,VAO;
+GLuint SSBO_particules; // Gestionnaire du SSBO
 
 struct PhongIDs{
   GLuint programID; // Gestionnaire du "shader program"
+  GLuint computeProgramID; // Gestionnaire du compute shader
   GLuint MatrixIDView,MatrixIDModel,MatrixIDPerspective; // Matrices modèle, vue et projection
-  GLuint locSphereRadius; // Rayon des particules
+  GLuint locSphereRadiusGeom; // Rayon des particules dans le geometry shader
+  GLuint locSphereRadiusComp; // Rayon des particules dans le compute shader
+  GLuint locTime; // Variable de discrétisation du temps
+  GLuint locMinX; // Limite de position des particules en -x
+  GLuint locMaxX; // Limite de position des particules en +x
+  GLuint locMinY; // Limite de position des particules en -y
+  GLuint locMaxY; // Limite de position des particules en +y
+  GLuint locMinZ; // Limite de position des particules en -z
+  GLuint locMaxZ; // Limite de position des particules en +z
 };
 
 PhongIDs phongIds;
@@ -102,7 +118,6 @@ std::random_device rd;
 std::default_random_engine engine(rd());
 std::uniform_real_distribution<float> angle(0.0f, 2.0f / 3.0f * PI); // Angle du cône à l'intérieur duquel sont projectées les particules
 static std::uniform_real_distribution<float> zDir(fountainHeight, (fountainHeight + 0.2*fountainHeight)); // Poussée verticale appliquée initialement sur les particules
-std::uniform_real_distribution<float> color(0.0f, 1.0f); // générateur de couleurs
 
 // location des VBO
 //------------------
@@ -153,55 +168,8 @@ void creationParticules(int nbParticules)
     memcpy(p.position, position, 3 * sizeof(GLfloat));
     GLfloat vitesse[3] = {coneRadius * sin(angle(engine)), coneRadius * cos(angle(engine)), zDir(engine)}; // ainsi qu'une vitesse initiale
     memcpy(p.vitesse, vitesse, 3 * sizeof(GLfloat));
-    p.age = 0.0f;
-    //GLfloat col[3] = {color(engine), color(engine), color(engine)};
-    //memcpy(p.color, col, 3 * sizeof(GLfloat));
     // Ajout de la nouvelle particule dans la liste des particules
     listeParticules.push_back(p);
-  }
-}
-
-void miseAJourParticules(int delatTemps)
-{
-  // Conversion du temps en seconde
-  GLfloat temps = delatTemps / 1000.0f;
-  for(auto it = listeParticules.begin(); it != listeParticules.end();)
-  {
-    // Ajout du temps à l'âge de la particule
-    (*it).age += temps;
-    if ((*it).age > systemeParticules.dureeVie)
-      listeParticules.erase(it);
-    else
-    { 
-      // Calcul de l'accélération de la particule
-      GLfloat acceleration[3] = {(*it).force[0]/(*it).masse, (*it).force[1]/(*it).masse, (*it).force[2]/(*it).masse};
-
-      // Mise à jour de la vitesse
-      (*it).vitesse[0] += acceleration[0]*t;
-      (*it).vitesse[1] += acceleration[1]*t;
-      (*it).vitesse[2] += acceleration[2]*t;
-
-      // Mise à jour de la nouvelle position
-      //GLfloat posX = (*it).position[0] + (*it).vitesse[0]*t;
-      //(*it).position[0] = (posX < -0.5f) ? -0.5f : (posX > 0.5f) ? 0.5f : posX;
-      (*it).position[0] += (*it).vitesse[0]*t;
-      //GLfloat posY = (*it).position[1] + (*it).vitesse[1]*t;
-      //(*it).position[1] = (posY < -0.5f) ? -0.5f : (posY > 0.5f) ? 0.5f : posY;
-      (*it).position[1] += (*it).vitesse[1]*t;
-      //GLfloat posZ = (*it).position[2] + (*it).vitesse[2]*t;
-      //(*it).position[2] = (posZ > 1.0f) ? 1.0f : posZ;
-      (*it).position[2] += (*it).vitesse[2]*t;
-      
-      // Si la particule touche le sol (z = 0)
-      if((*it).position[2] <= sphereRadius)
-      {
-        // On fait en sorte que la particule ne traverse pas le sol
-        (*it).position[2] = sphereRadius;
-        // On diminue sa vitesse de 50% en z
-        (*it).vitesse[2] *= -0.5f;
-      }
-      ++it;
-    }
   }
 }
 
@@ -210,13 +178,22 @@ void getUniformLocationPhong(PhongIDs& phong){
   //Chargement des vertex et fragment shaders pour Phong
   //phong.programID = LoadShaders("PhongShader.vert", "PhongShader.frag");
   phong.programID = LoadShadersWithGeom( "PhongShader.vert", "PhongShader.geom", "PhongShader.frag" );
+  phong.computeProgramID = LoadComputeShader("PhongShader.comp");
   // Récupération des emplacements des matrices modèle, vue et projection dans les shaders
   phong.MatrixIDView = glGetUniformLocation(phong.programID, "VIEW");
   phong.MatrixIDModel = glGetUniformLocation(phong.programID, "MODEL");
   phong.MatrixIDPerspective = glGetUniformLocation(phong.programID, "PERSPECTIVE");
 
   // Récupération des emplacements des variables unfiformes du shader de Phong
-  phong.locSphereRadius = glGetUniformLocation(phong.programID, "radius");
+  phong.locSphereRadiusGeom = glGetUniformLocation(phong.programID, "radius");
+  phong.locSphereRadiusComp = glGetUniformLocation(phong.computeProgramID, "radius");
+  phong.locTime = glGetUniformLocation(phong.computeProgramID, "deltaTime");
+  phong.locMinX = glGetUniformLocation(phong.computeProgramID, "bounds.minX");
+  phong.locMaxX = glGetUniformLocation(phong.computeProgramID, "bounds.maxX");
+  phong.locMinY = glGetUniformLocation(phong.computeProgramID, "bounds.minY");
+  phong.locMaxY = glGetUniformLocation(phong.computeProgramID, "bounds.maxY");
+  phong.locMinZ = glGetUniformLocation(phong.computeProgramID, "bounds.minZ");
+  phong.locMaxZ = glGetUniformLocation(phong.computeProgramID, "bounds.maxZ");
 }
 
 // Affectation de valeurs pour les variables uniformes du shader de Phong
@@ -226,7 +203,20 @@ void setPhongUniformValues(PhongIDs& phong){
   glUniformMatrix4fv(phong.MatrixIDModel, 1, GL_FALSE, &Model[0][0]);
   glUniformMatrix4fv(phong.MatrixIDPerspective, 1, GL_FALSE, &Projection[0][0]);
 
-  glUniform1f(phong.locSphereRadius, sphereRadius);
+  glUniform1f(phong.locSphereRadiusGeom, sphereRadius);
+}
+
+// Affectation de valeurs pour les variables uniformes du compute shader
+void setPhongUniformValuesComputeShader(PhongIDs& phong){
+  //on envoie les données necessaires au compute shader */
+  glUniform1f(phong.locSphereRadiusComp, sphereRadius);
+  glUniform1f(phong.locTime, t);
+  glUniform1f(phong.locMinX, particleBounds.minX);
+  glUniform1f(phong.locMaxX, particleBounds.maxX);
+  glUniform1f(phong.locMinY, particleBounds.minY);
+  glUniform1f(phong.locMaxY, particleBounds.maxY);
+  glUniform1f(phong.locMinZ, particleBounds.minZ);
+  glUniform1f(phong.locMaxZ, particleBounds.maxZ);
 }
 
 
@@ -252,7 +242,6 @@ void initOpenGL(void)
 void anim( int NumTimer)
 {
   using namespace std::chrono;
-  static int i=0;
   static time_point<system_clock> refTime = system_clock::now()  ;
 
     time_point<system_clock> currentTime = system_clock::now(); // This and "end"'s type is std::chrono::time_point
@@ -261,21 +250,36 @@ void anim( int NumTimer)
 
   int delatTemps = duration_cast<milliseconds>( deltaTime).count() ; // temps  écoulé en millisecondes depuis le dernier appel de anim
   refTime =currentTime ;
-  i++; // nb de passages : à utiliser pour initialiser la tirage aleatoire
 
-  // AFAIRE renouvelez ici les particules et réaliser le calcul de simulation
-  // Création de nouvelles particules
-  creationParticules(systemeParticules.tauxCreation);
-  // Mise à jour des positions et vitesses de toutes les particules
-  miseAJourParticules(delatTemps);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
+  // Récupération du nombre de particules actuelles
+  int currentNumberOfParticles = nbParticules;
+  // Si le nombre de particules ne dépasse pas la limite de particules à créer
+  if (currentNumberOfParticles < MAX_PARTICULES)
+  {
+    // Calcul du nombre de particules à créer
+    int particlesToCreate = std::min((int)systemeParticules.tauxCreation, MAX_PARTICULES - currentNumberOfParticles);
 
-  glBufferData(GL_ARRAY_BUFFER, listeParticules.size()*sizeof(Particule),listeParticules.data(), GL_DYNAMIC_DRAW);
+    // AFAIRE renouvelez ici les particules et réaliser le calcul de simulation
+    // Création de nouvelles particules
+    creationParticules(particlesToCreate);
 
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
+    // Mise à jour du SSBO en modifiant uniquement les nouvelles particules créées
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO_particules);
+
+    glNamedBufferSubData(SSBO_particules, currentNumberOfParticles * sizeof(Particule), particlesToCreate * sizeof(Particule), &listeParticules[currentNumberOfParticles]);
+
+    // Mise à jour du nombre de particules créées
+    nbParticules += particlesToCreate;
+  }
+
+  glUseProgram(phongIds.computeProgramID);
+  setPhongUniformValuesComputeShader(phongIds);
+  glDispatchCompute(64, 1, 1);
+
+  glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
   glutPostRedisplay();
-  glutTimerFunc(25,anim,1 );
+  glutTimerFunc(25,anim,1);
 }
 
 //----------------------------------------
@@ -290,7 +294,7 @@ int main(int argc,char **argv)
   glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE|GLUT_RGB);
   glutInitWindowPosition(200,200);
   glutInitWindowSize(screenWidth,screenHeight);
-  glutCreateWindow("FONTAINE A PARTICULES");
+  glutCreateWindow("FONTAINE A PARTICULES V2");
 
 
 // Initialize GLEW
@@ -308,9 +312,7 @@ int main(int argc,char **argv)
 
 	initOpenGL(); 
 
-   //creationParticules(systemeParticules.tauxCreation);
-
-   genereVBO();
+  genereSSBOParticules();
   
 
   /* enregistrement des fonctions de rappel */
@@ -326,37 +328,6 @@ int main(int argc,char **argv)
   return 0;
 }
 
-void genereVBO ()
-{
-
-  if(glIsBuffer(VBO_sommets) == GL_TRUE) glDeleteBuffers(1, &VBO_sommets);
-  glGenBuffers(1, &VBO_sommets);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
-
-  glBufferData(GL_ARRAY_BUFFER, listeParticules.size()*sizeof(Particule),listeParticules.data() , GL_DYNAMIC_DRAW);
-  glGenBuffers(1, &VAO);
-  glEnableVertexAttribArray(indexVertex);
-
-  glBindVertexArray(VAO); // ici on bind le VAO , c'est lui qui recupèrera les configurations des VBO glVertexAttribPointer , glEnableVertexAttribArray...
-  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
-
-  glVertexAttribPointer(indexVertex, 3, GL_FLOAT, GL_FALSE,sizeof(Particule),reinterpret_cast<void*>( offsetof(Particule, position)));
-  // une fois la config terminée
-  // on désactive le dernier VBO et le VAO pour qu'ils ne soit pas accidentellement modifié
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
-}
-
-//-----------------
-void deleteVBO ()
-//-----------------
-{
-  glDeleteBuffers(1, &VBO_sommets);
-  glDeleteBuffers(1, &VBO_normales);
-  glDeleteBuffers(1, &VBO_indices);
-  glDeleteBuffers(1, &VBO_UVtext);
-  glDeleteBuffers(1, &VAO);
-}
 
 /* fonction d'affichage */
 void affichage()
@@ -383,21 +354,33 @@ void affichage()
    glutSwapBuffers();
 }
 
+void genereSSBOParticules(void){
+  glGenBuffers(1, &SSBO_particules);
+  // Utilisation du SSBO
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO_particules);
+  // Affectation des données des particules au SSBO
+  glNamedBufferStorage(SSBO_particules, sizeof(Particule) * MAX_PARTICULES, nullptr, GL_DYNAMIC_STORAGE_BIT);
+  // On effectue le lien entre le SSBO et le point de binding 0 dans le shader program
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO_particules);
+  // Désactivation du SSBO une fois la paramétrisation terminée
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); 
+}
 
-
+void deleteSSBOParticules(void)
+{
+  glDeleteBuffers(1, &SSBO_particules);
+}
 
 //-------------------------------------
 void traceObjet()
 //-------------------------------------
 {
- // Use  shader & MVP matrix   MVP = Projection * View * Model;
- glUseProgram(phongIds.programID);
+  // Use  shader & MVP matrix   MVP = Projection * View * Model;
+  glUseProgram(phongIds.programID);
   setPhongUniformValues(phongIds);
 
  
   //pour l'affichage
-
-  glBindVertexArray(VAO); // on active le VAO
   glDrawArrays(GL_POINTS,0,listeParticules.size());
 }
 
@@ -427,14 +410,6 @@ void clavier(unsigned char touche,int x,int y)
       break;
     case 'v' : /* Affichage en mode sommets seuls */
       glPolygonMode(GL_FRONT_AND_BACK,GL_POINT);
-      glutPostRedisplay();
-      break;
-    case 's' : /* Affichage en mode sommets seuls */
-      materialShininess-=.5;
-      glutPostRedisplay();
-      break;
-    case 'S' : /* Affichage en mode sommets seuls */
-      materialShininess+=.5;
       glutPostRedisplay();
       break;
     case 'x' : /* Affichage en mode sommets seuls */
@@ -471,16 +446,6 @@ void clavier(unsigned char touche,int x,int y)
       if(systemeParticules.tauxCreation < 0) systemeParticules.tauxCreation = 0;
       std::cout << "Taux de creation des particules actuel : " << systemeParticules.tauxCreation << std::endl;
       break;
-    case 'l' : /*Diminue la durée de vie des particules*/
-      systemeParticules.dureeVie -= 0.5f;
-      if(systemeParticules.dureeVie < 0.1f) systemeParticules.dureeVie = 0.1f;
-      std::cout << "Duree de vie actuelle des particules : " << systemeParticules.dureeVie << " secondes" << std::endl;
-      break;
-    case 'L' : /*Augmente la durée de vie des particules*/
-      systemeParticules.dureeVie += 0.5f;
-      if(systemeParticules.dureeVie > 10.0f) systemeParticules.dureeVie = 10.0f;
-      std::cout << "Duree de vie actuelle des particules : " << systemeParticules.dureeVie << " secondes" << std::endl;
-      break;
     case 'h' : /*Diminue la hauteur du jet de la fontaine*/
       fountainHeight -= 2.5f;
       if(fountainHeight < 2.5f) fountainHeight = 2.5f;
@@ -512,15 +477,14 @@ void clavier(unsigned char touche,int x,int y)
       if(sphereRadius < 0.005f) sphereRadius = 0.005f;
       break;
     case 'q' : /*la touche 'q' permet de quitter le programme */
-      std::cout << "Désactivation du VAO actif...\n";
-      glBindVertexArray(0);
       std::cout << "Désactivation du shader program actif...\n";
       glUseProgram(0);
       std::cout << "Suppression des éléments du programme...\n";
       // Suppression des shader programs
-      glDeleteProgram(programID);
-      // Ainsi que des VAO, VBOs, framebuffers et textures utilisées dans le programme
-      deleteVBO();
+      glDeleteProgram(phongIds.programID);
+      glDeleteProgram(phongIds.computeProgramID);
+      // Ainsi que le SSBO
+      deleteSSBOParticules();
       std::cout << "Désactivations et suppressions terminées..." << std::endl;
       exit(0);
     }
