@@ -444,7 +444,7 @@ void clavier(unsigned char touche,int x,int y)
       break;
     case '+' : /* Augmente le taux de création de particules*/
       particlesSystem.creationRate += 1;
-      if(particlesSystem.creationRate > 200) particlesSystem.creationRate = 200;
+      if(particlesSystem.creationRate > 50) particlesSystem.creationRate = 50;
       std::cout << "Taux de creation des particules actuel : " << particlesSystem.creationRate << std::endl;
       break;
     case '-' : /*Diminue le taux de création des particules*/
