@@ -8,6 +8,5 @@ in GS_OUT{
 out vec4 finalColor;
 
 void main() {
-  int nbIter =1500 ;
   finalColor = vec4((normalize(fs_in.fragPosition) + 1) / 2, 1.0);
 }

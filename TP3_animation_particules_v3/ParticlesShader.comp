@@ -1,0 +1,152 @@
+
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Particle{
+  float position[3];
+  float velocity[3];
+  float mass;
+  float force[3];
+  float radius;
+  float color[3];
+};
+
+struct ParticleBounds{
+    float minX;
+    float maxX;
+    float minY;
+    float maxY;
+    float minZ;
+    float maxZ;
+};
+
+layout(std430, binding = 0) buffer particlesBuf {
+    Particle particles[];
+};
+
+uniform float deltaTime;
+uniform ParticleBounds bounds;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+
+    // Vérification pour éviter un dépassement de tableau
+    if (idx >= particles.length()) return;
+
+    Particle p = particles[idx];
+
+    // Calcul de l'accélération de la particule
+    vec3 acceleration = vec3(p.force[0]/p.mass, p.force[1]/p.mass, p.force[2]/p.mass);
+
+    // Mise à jour de la vitesse
+    p.velocity[0] += acceleration.x*deltaTime;
+    p.velocity[1] += acceleration.y*deltaTime;
+    p.velocity[2] += acceleration.z*deltaTime;
+
+    // Mise à jour de la nouvelle position de la particule
+    p.position[0] += p.velocity[0]*deltaTime;
+    p.position[1] += p.velocity[1]*deltaTime;
+    p.position[2] += p.velocity[2]*deltaTime;
+
+    // Si la particule touche l'arrière du cube (x = minX)
+    if(p.position[0] - p.radius <= bounds.minX)
+    {
+        // On fait en sorte que la particule ne sorte pas du cube
+        p.position[0] = bounds.minX + p.radius;
+        // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.velocity[0] *= -0.7f;
+    }
+    // Sinon si la particule touche l'avant du cube (x = maxX)
+    if(p.position[0] + p.radius >= bounds.maxX)
+    {
+        // On fait en sorte que la particule ne sorte pas du cube
+        p.position[0] = bounds.maxX - p.radius;
+        // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.velocity[0] *= -0.7f;
+    }
+
+    // Si la particule touche le côté gauche du cube (y = minY)
+    if(p.position[1] - p.radius <= bounds.minY)
+    {
+        // On fait en sorte que la particule ne sorte pas du cube
+        p.position[1] = bounds.minY + p.radius;
+        // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.velocity[1] *= -0.7f;
+    }
+    // Sinon si la particule touche le côté droit du cube (y = maxY)
+    if(p.position[1] + p.radius >= bounds.maxY)
+    {
+        // On fait en sorte que la particule ne sorte pas du cube
+        p.position[1] = bounds.maxY - p.radius;
+        // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.velocity[1] *= -0.7f;
+    }
+
+    // Si la particule touche le sol (z = minZ)
+    if(p.position[2] - p.radius <= bounds.minZ)
+    {
+      // On fait en sorte que la particule ne traverse pas le sol
+      p.position[2] = bounds.minZ + p.radius;
+      // On diminue sa vitesse de 60% en z
+      p.velocity[2] *= -0.4f;
+    }
+    // Sinon si elle touche le plafond (z = maxZ)
+    else if(p.position[2] + p.radius >= bounds.maxZ)
+    {
+        //On fait en sorte que la particule ne traverse pas le plafond
+        p.position[2] = bounds.maxZ - p.radius;
+        // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+        p.velocity[2] *= -0.7f;
+    }
+
+    // Vérification si la particule courante entre en collisions avec une autre particule
+    for(int i = 0; i < particles.length(); i++)
+    {
+        // Si la particule n'est pas la même que la particule courante
+        if(i != idx)
+        {
+            // Récupération de la particule courante dans la boucle for
+            Particle p_current = particles[i];
+            // Calcule du vecteur entre les deux particules
+            vec3 particles_vector = vec3(p.position[0] - p_current.position[0], p.position[1] - p_current.position[1], p.position[2] - p_current.position[2]);
+            // Calcule de la norme du vecteur
+            float norm = length(particles_vector);
+
+            // Si les deux particules entre en collisions
+            if(norm <= (p.radius + p_current.radius))
+            {
+                // Normalisation du vecteur entre les deux particules
+                vec3 u = normalize(particles_vector);
+
+                // Calcule des des nouvelles directions pour les deux particules
+                vec3 velocity_p = vec3(p.velocity[0], p.velocity[1], p.velocity[2]);
+                vec3 velocity_p_current = vec3(p_current.velocity[0], p_current.velocity[1], p_current.velocity[2]);
+                float dot_p_pcurrent = dot(velocity_p_current - velocity_p, u);
+                p.velocity[0] = 0.95 * (p.velocity[0] + dot_p_pcurrent * u.x);
+                p.velocity[1] = 0.95 * (p.velocity[1] + dot_p_pcurrent * u.y);
+                p.velocity[2] = 0.95 * (p.velocity[2] + dot_p_pcurrent * u.z);
+
+                p_current.velocity[0] = 0.95 * (p_current.velocity[0] - dot_p_pcurrent * u.x);
+                p_current.velocity[1] = 0.95 * (p_current.velocity[1] - dot_p_pcurrent * u.y);
+                p_current.velocity[2] = 0.95 * (p_current.velocity[2] - dot_p_pcurrent * u.z);
+
+                // Nous corrigeons ensuite la position des deux particules afin qu'elles ne se traversent pas
+                // Calcul de la profondeur de collision entre les deux particules
+                float depth_collision = p.radius + p_current.radius - norm;
+
+                // Mise à jour des nouvelles positions des deux particules
+                p.position[0] += depth_collision / 2.0 * u.x;
+                p.position[1] += depth_collision / 2.0 * u.y;
+                p.position[2] += depth_collision / 2.0 * u.z;
+
+                p_current.position[0] += depth_collision / 2.0 * u.x;
+                p_current.position[1] += depth_collision / 2.0 * u.y;
+                p_current.position[2] += depth_collision / 2.0 * u.z;
+            }
+        }
+    }
+
+    // Mise à jour de la particule avec ses nouvelles données
+    particles[idx] = p;
+}

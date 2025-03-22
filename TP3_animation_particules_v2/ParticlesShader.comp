@@ -1,0 +1,131 @@
+
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Particle{
+  float position[3];
+  float velocity[3];
+  float initialVelocity[3];
+  float mass;
+  float force[3];
+  float age;
+  float initialAge;
+};
+
+struct ParticleBounds{
+    float minX;
+    float maxX;
+    float minY;
+    float maxY;
+    float minZ;
+    float maxZ;
+};
+
+layout(std430, binding = 0) buffer particlesBuf {
+    Particle particles[];
+};
+
+uniform float radius;
+uniform float deltaTime;
+uniform ParticleBounds bounds;
+uniform int refreshedTime;
+uniform float lifeTime;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    // Conversion du taux de rafraichissement en secondes
+    float time = refreshedTime / 1000.0f;
+
+    // Vérification pour éviter un dépassement de tableau
+    if (idx >= particles.length()) return;
+
+    Particle p = particles[idx];
+    // Diminution de la durée de vie de la particule
+    p.age -= time;
+    // Vérification si la particule est toujours vivante
+    // Si elle est toujours vivante
+    if(p.age > 0.0f)
+    {
+        // Calcul de l'accélération de la particule
+        vec3 acceleration = vec3(p.force[0]/p.mass, p.force[1]/p.mass, p.force[2]/p.mass);
+
+        // Mise à jour de la vitesse
+        p.velocity[0] += acceleration.x*deltaTime;
+        p.velocity[1] += acceleration.y*deltaTime;
+        p.velocity[2] += acceleration.z*deltaTime;
+
+        // Mise à jour de la nouvelle position de la particule
+        p.position[0] += p.velocity[0]*deltaTime;
+        p.position[1] += p.velocity[1]*deltaTime;
+        p.position[2] += p.velocity[2]*deltaTime;
+
+        // Si la particule touche l'arrière du cube (x = minX)
+        if(p.position[0] - radius <= bounds.minX)
+        {
+            // On fait en sorte que la particule ne sorte pas du cube
+            p.position[0] = bounds.minX + radius;
+            // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+            p.velocity[0] *= -0.7f;
+        }
+        // Sinon si la particule touche l'avant du cube (x = maxX)
+        if(p.position[0] + radius >= bounds.maxX)
+        {
+            // On fait en sorte que la particule ne sorte pas du cube
+            p.position[0] = bounds.maxX - radius;
+            // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+            p.velocity[0] *= -0.7f;
+        }
+
+        // Si la particule touche le côté gauche du cube (y = minY)
+        if(p.position[1] - radius <= bounds.minY)
+        {
+            // On fait en sorte que la particule ne sorte pas du cube
+            p.position[1] = bounds.minY + radius;
+            // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+            p.velocity[1] *= -0.7f;
+        }
+        // Sinon si la particule touche le côté droit du cube (y = maxY)
+        if(p.position[1] + radius >= bounds.maxY)
+        {
+            // On fait en sorte que la particule ne sorte pas du cube
+            p.position[1] = bounds.maxY - radius;
+            // // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+            p.velocity[1] *= -0.7f;
+        }
+
+        // Si la particule touche le sol (z = minZ)
+        if(p.position[2] - radius <= bounds.minZ)
+        {
+        // On fait en sorte que la particule ne traverse pas le sol
+        p.position[2] = radius;
+        // On diminue sa vitesse de 60% en z
+        p.velocity[2] *= -0.4f;
+        }
+        // Sinon si elle touche le plafond (z = maxZ)
+        else if(p.position[2] + radius >= bounds.maxZ)
+        {
+            //On fait en sorte que la particule ne traverse pas le plafond
+            p.position[2] = bounds.maxZ - radius;
+            // On renvoie la particule dans la direction opposée en diminuant sa vitesse de 30%
+            p.velocity[2] *= -0.7f;
+        }
+    }
+    // Sinon elle est morte
+    else
+    {
+        // On réinitialise toutes ses données
+        // Sa position initiale
+        p.position[0] = 0.0f;
+        p.position[1] = 0.0f;
+        p.position[2] = 0.0f;
+        // Sa vitesse initiale
+        p.velocity[0] = p.initialVelocity[0];
+        p.velocity[1] = p.initialVelocity[1];
+        p.velocity[2] = p.initialVelocity[2];
+        // et son âge
+        p.age = p.initialAge;
+    }
+    // Mise à jour de la particule avec ses nouvelles données
+    particles[idx] = p;
+}

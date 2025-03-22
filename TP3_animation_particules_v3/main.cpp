@@ -28,36 +28,45 @@
 #include <vector>
 
 #define PI 3.14159265358979323846
+#define MAX_PARTICULES 80000
 
 
 using namespace glm;
 using namespace std;
 
 typedef struct{
-  GLuint creationRate = 5;
-  GLfloat lifeTime = 5.0f;
+  GLuint creationRate = 10;
 } ParticleSystem;
 
 typedef struct {
-  GLfloat position[3] ;
-  GLfloat velocity[3] ;
+  GLfloat position[3];
+  GLfloat velocity[3];
   GLfloat mass;
   GLfloat force[3];
-  GLfloat age;
+  GLfloat radius;
   GLfloat color[3];
-} Particle ;
+} Particle;
+
+typedef struct{
+  GLfloat minX = -0.5f;
+  GLfloat maxX = 0.5f;
+  GLfloat minY = -0.5f;
+  GLfloat maxY = 0.5f;
+  GLfloat minZ = 0.0f;
+  GLfloat maxZ = 1.5f;
+}ParticlesBounds;
 
 vector<Particle> particles;
-ParticleSystem particleSystem;
-
+ParticleSystem particlesSystem;
+ParticlesBounds particleBounds;
 
 void anim( int NumTimer) ;
 
 // initialisations
 
-void genereVBO();
-void createParticles(int nbParticles ) ;
-void deleteVBO();
+void genereSSBOParticles(void);
+void createParticles(int nbParticles);
+void deleteSSBOParticles();
 void traceObjet();
 
 // fonctions de rappel de glut
@@ -78,30 +87,37 @@ float mouseX, mouseY;
 float cameraAngleX;
 float cameraAngleY;
 float cameraDistance=1.;
-float t = 0.001f;
-float coneRadius = 10.0f;
-static float fountainHeight = 60.0f;
-float sphereRadius = 0.01f;
+float t = 0.001f; // Variable de discrétisation du temps
+float coneRadius = 10.0f; // Rayon de projection des particules
+float fountainHeight = 60.0f; // Hauteur de la projection en +z des particules émises
+int nbParticles = 0; // Nombre de particules actuellement créées
+int refreshedTime = 0; // temps  écoulé en millisecondes depuis le dernier appel de anim
 // variables Handle d'opengl 
 //--------------------------
-GLuint programID;   // handle pour le shader
-GLuint MatrixIDMVP,MatrixIDView,MatrixIDModel,MatrixIDPerspective;    // handle pour la matrice MVP
-GLuint VBO_sommets,VBO_normales, VBO_indices,VBO_UVtext,VAO;
+GLuint SSBO_particles; // Gestionnaire du SSBO
 
-struct ParticleIDs{
+struct ParticlesIDs{
   GLuint programID; // Gestionnaire du "shader program"
+  GLuint computeProgramID; // Gestionnaire du compute shader
   GLuint MatrixIDView,MatrixIDModel,MatrixIDPerspective; // Matrices modèle, vue et projection
-  GLuint locSphereRadius; // Rayon des Particles
+  GLuint locDeltaTime; // Variable de discrétisation du temps
+  GLuint locMinX; // Limite de position des particules en -x
+  GLuint locMaxX; // Limite de position des particules en +x
+  GLuint locMinY; // Limite de position des particules en -y
+  GLuint locMaxY; // Limite de position des particules en +y
+  GLuint locMinZ; // Limite de position des particules en -z
+  GLuint locMaxZ; // Limite de position des particules en +z
 };
 
-ParticleIDs particleIds;
+ParticlesIDs particlesIds;
 
 // Initialisation de la génération de nombres pseudo-aléatoires
 std::random_device rd;
 // Création du moteur de génération
 std::default_random_engine engine(rd());
-std::uniform_real_distribution<float> angle(0.0f, 2.0f / 3.0f * PI); // Angle du cône à l'intérieur duquel sont projectées les Particles
-static std::uniform_real_distribution<float> zDir(fountainHeight, (fountainHeight + 0.2*fountainHeight)); // Poussée verticale appliquée initialement sur les Particles
+std::uniform_real_distribution<float> angle(0.0f, 2.0f / 3.0f * PI); // Angle du cône à l'intérieur duquel sont projectées les particules
+std::uniform_real_distribution<float> colors(0.0f, 1.0f); // Couleurs données aux particules
+std::uniform_real_distribution<float> sphereRadius(0.01f, 0.03f); // Rayon des particules
 
 // location des VBO
 //------------------
@@ -110,11 +126,6 @@ GLuint indexVertex=0;
 //variable pour paramétrage eclairage
 //--------------------------------------
 vec3 cameraPosition(2.,0.,0.);
-// le matériau
-//---------------
-vec3 materialSpecularColor(0.47,0.71,1.);  // couleur de la spéculaire (bleu ciel)
-vec3 materialAmbientColor(1.,1.,1.); // couleur de la lumière ambiante (blanc)
-vec3 materialDiffuseColor(0.,1.,1.); // couleur de la lumière diffuse (cyan)
 
 // la lumière
 //-----------
@@ -128,86 +139,73 @@ glm::mat4 Model, View, Projection;    // Matrices constituant MVP
 int screenHeight = 1500;
 int screenWidth = 1500;
 
+// pour la texture
+//-------------------
+GLuint image ;
+GLuint bufTexture,bufNormalMap;
+GLuint locationTexture,locationNormalMap;
 //-------------------------
-void creationParticles(int nbParticles)
+void createParticles(int nbParticles)
 {
   for(int i = 0; i < nbParticles; i++)
   {
     // Création d'une nouvelle particule
     Particle p;
     // On lui définit des propriétés
-    p.mass = 0.01f; // Une mass
+    p.mass = 0.01f; // Une masse
+    p.radius = sphereRadius(engine); // Un rayon
     GLfloat force[3] = {0.0f, 0.0f, -9.91f}; // Une force à laquelle la particule est soumise
     memcpy(p.force, force, 3 * sizeof(GLfloat));
     GLfloat position[3] = {0.0f, 0.0f, 0.0f}; // Une position initiale
     memcpy(p.position, position, 3 * sizeof(GLfloat));
-    GLfloat velocity[3] = {coneRadius * sin(angle(engine)), coneRadius * cos(angle(engine)), zDir(engine)}; // ainsi qu'une velocity initiale
+    GLfloat velocity[3] = {coneRadius * sin(angle(engine)), coneRadius * cos(angle(engine)), 125.0f}; // ainsi qu'une vitesse initiale
     memcpy(p.velocity, velocity, 3 * sizeof(GLfloat));
-    p.age = 0.0f;
-    // Ajout de la nouvelle particule dans la liste des Particles
+    GLfloat color[3] = {colors(engine), colors(engine), colors(engine)};
+    memcpy(p.color, color, 3 * sizeof(GLfloat));
+    // Ajout de la nouvelle particule dans la liste des particules
     particles.push_back(p);
   }
 }
 
-void updateParticles(int delatTemps)
-{
-  // Conversion du temps en seconde
-  GLfloat temps = delatTemps / 1000.0f;
-  for(auto it = particles.begin(); it != particles.end();)
-  {
-    // Ajout du temps à l'âge de la particule
-    (*it).age += temps;
-    if ((*it).age > particleSystem.lifeTime)
-      particles.erase(it);
-    else
-    { 
-      // Calcul de l'accélération de la particule
-      GLfloat acceleration[3] = {(*it).force[0]/(*it).mass, (*it).force[1]/(*it).mass, (*it).force[2]/(*it).mass};
-
-      // Mise à jour de la velocity
-      (*it).velocity[0] += acceleration[0]*t;
-      (*it).velocity[1] += acceleration[1]*t;
-      (*it).velocity[2] += acceleration[2]*t;
-
-      // Mise à jour de la nouvelle position
-      (*it).position[0] += (*it).velocity[0]*t;
-      (*it).position[1] += (*it).velocity[1]*t;
-      (*it).position[2] += (*it).velocity[2]*t;
-      
-      // Si la particule touche le sol (z = 0)
-      if((*it).position[2] <= sphereRadius)
-      {
-        // On fait en sorte que la particule ne traverse pas le sol
-        (*it).position[2] = sphereRadius;
-        // On restitue 50% de sa vitesse initiale
-        (*it).velocity[2] *= -0.5f;
-      }
-      ++it;
-    }
-  }
-}
-
 // Récupération des emplacements des variables uniformes pour le shader des particules
-void getUniformLocationParticles(ParticleIDs& particle){
-  //Chargement des vertex, geometry fragment shaders pour les particules
+void getUniformLocationParticles(ParticlesIDs& particle){
+  //Chargement des vertex, geometry et fragment shaders des particules
   particle.programID = LoadShadersWithGeom("ParticlesShader.vert", "ParticlesShader.geom", "ParticlesShader.frag");
+  // Ainsi que le compute shader permettant de mettre à jour les velocitys et les positions des nouvelles particules
+  particle.computeProgramID = LoadComputeShader("ParticlesShader.comp");
   // Récupération des emplacements des matrices modèle, vue et projection dans les shaders
   particle.MatrixIDView = glGetUniformLocation(particle.programID, "VIEW");
   particle.MatrixIDModel = glGetUniformLocation(particle.programID, "MODEL");
   particle.MatrixIDPerspective = glGetUniformLocation(particle.programID, "PERSPECTIVE");
 
-  // Récupération des emplacements des variables uniformes du shader des particles
-  particle.locSphereRadius = glGetUniformLocation(particle.programID, "radius");
+  // Récupération des emplacements des variables unfiformes du shader des particules
+  particle.locDeltaTime = glGetUniformLocation(particle.computeProgramID, "deltaTime");
+  particle.locMinX = glGetUniformLocation(particle.computeProgramID, "bounds.minX");
+  particle.locMaxX = glGetUniformLocation(particle.computeProgramID, "bounds.maxX");
+  particle.locMinY = glGetUniformLocation(particle.computeProgramID, "bounds.minY");
+  particle.locMaxY = glGetUniformLocation(particle.computeProgramID, "bounds.maxY");
+  particle.locMinZ = glGetUniformLocation(particle.computeProgramID, "bounds.minZ");
+  particle.locMaxZ = glGetUniformLocation(particle.computeProgramID, "bounds.maxZ");
 }
 
 // Affectation de valeurs pour les variables uniformes du shader des particules
-void setParticlesUniformValues(ParticleIDs& particle){
+void setParticlesUniformValues(ParticlesIDs& particle){
   //on envoie les données necessaires aux shaders */
   glUniformMatrix4fv(particle.MatrixIDView, 1, GL_FALSE,&View[0][0]);
   glUniformMatrix4fv(particle.MatrixIDModel, 1, GL_FALSE, &Model[0][0]);
   glUniformMatrix4fv(particle.MatrixIDPerspective, 1, GL_FALSE, &Projection[0][0]);
+}
 
-  glUniform1f(particle.locSphereRadius, sphereRadius);
+// Affectation de valeurs pour les variables uniformes du compute shader
+void setParticlesUniformValuesComputeShader(ParticlesIDs& particle){
+  //on envoie les données necessaires au compute shader */
+  glUniform1f(particle.locDeltaTime, t);
+  glUniform1f(particle.locMinX, particleBounds.minX);
+  glUniform1f(particle.locMaxX, particleBounds.maxX);
+  glUniform1f(particle.locMinY, particleBounds.minY);
+  glUniform1f(particle.locMaxY, particleBounds.maxY);
+  glUniform1f(particle.locMinZ, particleBounds.minZ);
+  glUniform1f(particle.locMaxZ, particleBounds.maxZ);
 }
 
 
@@ -218,11 +216,11 @@ void initOpenGL(void)
   glCullFace (GL_BACK); // on spécifie queil faut éliminer les face arriere
   glEnable(GL_CULL_FACE); // on active l'élimination des faces qui par défaut n'est pas active
   glEnable(GL_DEPTH_TEST); 
- glEnable( GL_PROGRAM_POINT_SIZE );
- //  glPointSize(30.);
- glEnable(GL_BLEND);
- glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  getUniformLocationParticles(particleIds);
+  glEnable( GL_PROGRAM_POINT_SIZE );
+  //  glPointSize(30.);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  getUniformLocationParticles(particlesIds);
   // Projection matrix : 65 Field of View, 1:1 ratio, display range : 1 unit <-> 1000 units
   // ATTENTIOn l'angle est donné en radians si f GLM_FORCE_RADIANS est défini sinon en degré
   Projection = glm::perspective( glm::radians(60.f), 1.0f, 1.0f, 1000.0f);
@@ -233,31 +231,47 @@ void initOpenGL(void)
 void anim( int NumTimer)
 {
   using namespace std::chrono;
-  static int i=0;
   static time_point<system_clock> refTime = system_clock::now()  ;
 
-    time_point<system_clock> currentTime = system_clock::now(); // This and "end"'s type is std::chrono::time_point
+  time_point<system_clock> currentTime = system_clock::now(); // This and "end"'s type is std::chrono::time_point
 
-    duration<double> deltaTime = currentTime - refTime;
+  duration<double> deltaTime = currentTime - refTime;
 
-  int delatTemps = duration_cast<milliseconds>( deltaTime).count() ; // temps  écoulé en millisecondes depuis le dernier appel de anim
+  refreshedTime = duration_cast<milliseconds>( deltaTime).count() ; // temps  écoulé en millisecondes depuis le dernier appel de anim
   refTime =currentTime ;
-  i++; // nb de passages : à utiliser pour initialiser la tirage aleatoire
 
-  // AFAIRE renouvelez ici les Particles et réaliser le calcul de simulation
-  // Création de nouvelles Particles
-  creationParticles(particleSystem.creationRate);
-  // Mise à jour des positions et vitesses de toutes les Particles
-  updateParticles(delatTemps);
-  // Affectation des nouvelles données des particules dans le VBO associé
-  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
+  // Récupération du nombre de particules actuelles
+  int currentNumberOfParticles = nbParticles;
+  // Si le nombre de particules ne dépasse pas la limite de particules à créer
+  if (currentNumberOfParticles < MAX_PARTICULES)
+  {
+    // Calcul du nombre de particules à créer
+    int particlesToCreate = std::min((int)particlesSystem.creationRate, MAX_PARTICULES - currentNumberOfParticles);
 
-  glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle),particles.data(), GL_DYNAMIC_DRAW);
+    // AFAIRE renouvelez ici les particules et réaliser le calcul de simulation
+    // Création de nouvelles particules
+    createParticles(particlesToCreate);
 
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
+    // Mise à jour du SSBO en modifiant uniquement les données des nouvelles particules créées
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO_particles);
+
+    glNamedBufferSubData(SSBO_particles, currentNumberOfParticles * sizeof(Particle), particlesToCreate * sizeof(Particle), &particles[currentNumberOfParticles]);
+
+    // Mise à jour du nombre de particules créées
+    nbParticles += particlesToCreate;
+  }
+
+  // Mise à jour des positions et vitesses des particules actuellement créées
+  // Utilisation du shader program du compute shader
+  glUseProgram(particlesIds.computeProgramID);
+  // Afffectation du contenu des varibles uniformes
+  setParticlesUniformValuesComputeShader(particlesIds);
+  glDispatchCompute(64, 1, 1);
+
+  glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
   glutPostRedisplay();
-  glutTimerFunc(25,anim,1 );
+  glutTimerFunc(25,anim,1);
 }
 
 //----------------------------------------
@@ -272,7 +286,7 @@ int main(int argc,char **argv)
   glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE|GLUT_RGB);
   glutInitWindowPosition(200,200);
   glutInitWindowSize(screenWidth,screenHeight);
-  glutCreateWindow("FONTAINE A PARTICULES");
+  glutCreateWindow("FONTAINE A PARTICULES V2");
 
 
 // Initialize GLEW
@@ -290,9 +304,7 @@ int main(int argc,char **argv)
 
 	initOpenGL(); 
 
-   //creationParticles(particleSystem.creationRate);
-
-   genereVBO();
+  genereSSBOParticles();
   
 
   /* enregistrement des fonctions de rappel */
@@ -308,37 +320,6 @@ int main(int argc,char **argv)
   return 0;
 }
 
-void genereVBO ()
-{
-
-  if(glIsBuffer(VBO_sommets) == GL_TRUE) glDeleteBuffers(1, &VBO_sommets);
-  glGenBuffers(1, &VBO_sommets);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
-
-  glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle),particles.data() , GL_DYNAMIC_DRAW);
-  glGenBuffers(1, &VAO);
-  glEnableVertexAttribArray(indexVertex);
-
-  glBindVertexArray(VAO); // ici on bind le VAO , c'est lui qui recupèrera les configurations des VBO glVertexAttribPointer , glEnableVertexAttribArray...
-  glBindBuffer(GL_ARRAY_BUFFER, VBO_sommets);
-
-  glVertexAttribPointer(indexVertex, 3, GL_FLOAT, GL_FALSE,sizeof(Particle),reinterpret_cast<void*>( offsetof(Particle, position)));
-  // une fois la config terminée
-  // on désactive le dernier VBO et le VAO pour qu'ils ne soit pas accidentellement modifié
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
-}
-
-//-----------------
-void deleteVBO ()
-//-----------------
-{
-  glDeleteBuffers(1, &VBO_sommets);
-  glDeleteBuffers(1, &VBO_normales);
-  glDeleteBuffers(1, &VBO_indices);
-  glDeleteBuffers(1, &VBO_UVtext);
-  glDeleteBuffers(1, &VAO);
-}
 
 /* fonction d'affichage */
 void affichage()
@@ -365,21 +346,33 @@ void affichage()
    glutSwapBuffers();
 }
 
+void genereSSBOParticles(void){
+  glGenBuffers(1, &SSBO_particles);
+  // Utilisation du SSBO
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO_particles);
+  // Affectation des données des particules au SSBO
+  glNamedBufferStorage(SSBO_particles, sizeof(Particle) * MAX_PARTICULES, nullptr, GL_DYNAMIC_STORAGE_BIT);
+  // On effectue le lien entre le SSBO et le point de binding 0 dans le shader program
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO_particles);
+  // Désactivation du SSBO une fois la paramétrisation terminée
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); 
+}
 
-
+void deleteSSBOParticles(void)
+{
+  glDeleteBuffers(1, &SSBO_particles);
+}
 
 //-------------------------------------
 void traceObjet()
 //-------------------------------------
 {
- // Use  shader & MVP matrix   MVP = Projection * View * Model;
- glUseProgram(particleIds.programID);
-  setParticlesUniformValues(particleIds);
+  // Use  shader & MVP matrix   MVP = Projection * View * Model;
+  glUseProgram(particlesIds.programID);
+  setParticlesUniformValues(particlesIds);
 
  
   //pour l'affichage
-
-  glBindVertexArray(VAO); // on active le VAO
   glDrawArrays(GL_POINTS,0,particles.size());
 }
 
@@ -435,66 +428,25 @@ void clavier(unsigned char touche,int x,int y)
       lightPosition.z+=.2;
       glutPostRedisplay();
       break;
-    case '+' : /* Augmente le taux de création de Particles*/
-      particleSystem.creationRate += 1;
-      if(particleSystem.creationRate > 200) particleSystem.creationRate = 200;
-      std::cout << "Taux de creation des Particles actuel : " << particleSystem.creationRate << std::endl;
+    case '+' : /* Augmente le taux de création de particules*/
+      particlesSystem.creationRate += 1;
+      if(particlesSystem.creationRate > 200) particlesSystem.creationRate = 200;
+      std::cout << "Taux de creation des particules actuel : " << particlesSystem.creationRate << std::endl;
       break;
-    case '-' : /*Diminue le taux de création des Particles*/
-      particleSystem.creationRate -= 1;
-      if(particleSystem.creationRate < 0) particleSystem.creationRate = 0;
-      std::cout << "Taux de creation des Particles actuel : " << particleSystem.creationRate << std::endl;
-      break;
-    case 'l' : /*Diminue la durée de vie des Particles*/
-      particleSystem.lifeTime -= 0.5f;
-      if(particleSystem.lifeTime < 0.1f) particleSystem.lifeTime = 0.1f;
-      std::cout << "Duree de vie actuelle des Particles : " << particleSystem.lifeTime << " secondes" << std::endl;
-      break;
-    case 'L' : /*Augmente la durée de vie des Particles*/
-      particleSystem.lifeTime += 0.5f;
-      if(particleSystem.lifeTime > 10.0f) particleSystem.lifeTime = 10.0f;
-      std::cout << "Duree de vie actuelle des Particles : " << particleSystem.lifeTime << " secondes" << std::endl;
-      break;
-    case 'h' : /*Diminue la hauteur du jet de la fontaine*/
-      fountainHeight -= 2.5f;
-      if(fountainHeight < 2.5f) fountainHeight = 2.5f;
-      zDir = std::uniform_real_distribution<float>(fountainHeight, (fountainHeight + 0.2*fountainHeight));
-      std::cout << "hauteur de la fontaine : " << fountainHeight << " unites" << std::endl;
-      break;
-    case 'H' : /*Diminue la hauteur du jet de la fontaine*/
-      fountainHeight += 2.5f;
-      if(fountainHeight > 80.0f) fountainHeight = 80.0f;
-      zDir = std::uniform_real_distribution<float>(fountainHeight, (fountainHeight + 0.2*fountainHeight));
-      std::cout << "hauteur de la fontaine : " << fountainHeight << " unites" << std::endl;
-      break;
-    case 'r' : /*Diminue le rayon du cône du jet de la fontaine*/
-      coneRadius -= 2.0f;
-      if(coneRadius < 2.0f) coneRadius = 2.0f;
-      std::cout << "diametre du jet de la fontaine : " << coneRadius << " unites" << std::endl;
-      break;
-    case 'R' : /*Augmente le rayon du cône du jet de la fontaine*/
-      coneRadius += 2.0f;
-      if(coneRadius > 30.0f) coneRadius = 30.0f;
-      std::cout << "diametre du jet de la fontaine : " << coneRadius << " unites" << std::endl;
-      break;
-    case 'p' : /*Augmente le rayon des Particles*/
-      sphereRadius += 0.005f;
-      if(sphereRadius > 0.05f) sphereRadius = 0.05f;
-      break;
-    case 'm' : /*Diminue le rayon des Particles*/
-      sphereRadius -= 0.005f;
-      if(sphereRadius < 0.005f) sphereRadius = 0.005f;
+    case '-' : /*Diminue le taux de création des particules*/
+      particlesSystem.creationRate -= 1;
+      if(particlesSystem.creationRate < 0) particlesSystem.creationRate = 0;
+      std::cout << "Taux de creation des particules actuel : " << particlesSystem.creationRate << std::endl;
       break;
     case 'q' : /*la touche 'q' permet de quitter le programme */
-      std::cout << "Désactivation du VAO actif...\n";
-      glBindVertexArray(0);
       std::cout << "Désactivation du shader program actif...\n";
       glUseProgram(0);
       std::cout << "Suppression des éléments du programme...\n";
       // Suppression des shader programs
-      glDeleteProgram(programID);
-      // Ainsi que des VAO, VBOs, framebuffers et textures utilisées dans le programme
-      deleteVBO();
+      glDeleteProgram(particlesIds.programID);
+      glDeleteProgram(particlesIds.computeProgramID);
+      // Ainsi que le SSBO
+      deleteSSBOParticles();
       std::cout << "Désactivations et suppressions terminées..." << std::endl;
       exit(0);
     }
