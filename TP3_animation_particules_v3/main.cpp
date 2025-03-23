@@ -286,7 +286,7 @@ int main(int argc,char **argv)
   glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE|GLUT_RGB);
   glutInitWindowPosition(200,200);
   glutInitWindowSize(screenWidth,screenHeight);
-  glutCreateWindow("FONTAINE A PARTICULES V2");
+  glutCreateWindow("FONTAINE A PARTICULES V3");
 
 
 // Initialize GLEW

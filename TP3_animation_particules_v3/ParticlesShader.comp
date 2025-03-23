@@ -119,7 +119,7 @@ void main() {
                 // Normalisation du vecteur entre les deux particules
                 vec3 u = normalize(particles_vector);
 
-                // Calcule des des nouvelles directions pour les deux particules
+                // Calcule de la nouvelle vitesse de la particule principale (d'indice idx)
                 vec3 velocity_p = vec3(p.velocity[0], p.velocity[1], p.velocity[2]);
                 vec3 velocity_p_current = vec3(p_current.velocity[0], p_current.velocity[1], p_current.velocity[2]);
                 float dot_p_pcurrent = dot(velocity_p_current - velocity_p, u);
@@ -127,11 +127,7 @@ void main() {
                 p.velocity[1] = 0.95 * (p.velocity[1] + dot_p_pcurrent * u.y);
                 p.velocity[2] = 0.95 * (p.velocity[2] + dot_p_pcurrent * u.z);
 
-                p_current.velocity[0] = 0.95 * (p_current.velocity[0] - dot_p_pcurrent * u.x);
-                p_current.velocity[1] = 0.95 * (p_current.velocity[1] - dot_p_pcurrent * u.y);
-                p_current.velocity[2] = 0.95 * (p_current.velocity[2] - dot_p_pcurrent * u.z);
-
-                // Nous corrigeons ensuite la position des deux particules afin qu'elles ne se traversent pas
+                // Nous corrigeons ensuite la position de la particule principale
                 // Calcul de la profondeur de collision entre les deux particules
                 float depth_collision = p.radius + p_current.radius - norm;
 
@@ -139,10 +135,6 @@ void main() {
                 p.position[0] += depth_collision / 2.0 * u.x;
                 p.position[1] += depth_collision / 2.0 * u.y;
                 p.position[2] += depth_collision / 2.0 * u.z;
-
-                p_current.position[0] += depth_collision / 2.0 * u.x;
-                p_current.position[1] += depth_collision / 2.0 * u.y;
-                p_current.position[2] += depth_collision / 2.0 * u.z;
             }
         }
     }
